@@ -221,3 +221,12 @@ multi_app_tasks
 
 !evaluation/AndroidWorld/android_world/env/
 !evaluation/AndroidWorld/android_world/env/**/*
+
+# But still ignore Python bytecode caches inside AndroidWorld env/
+evaluation/AndroidWorld/android_world/env/**/__pycache__/
+evaluation/AndroidWorld/android_world/env/**/*.py[codz]
+evaluation/AndroidWorld/android_world/env/**/*$py.class
+
+# AndroidWorld generated artifacts
+evaluation/AndroidWorld/output/
+evaluation/AndroidWorld/runs/

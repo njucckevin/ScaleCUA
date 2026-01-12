@@ -92,13 +92,18 @@ def run_episode(
             response = result.data.get("action_output")
         else:
             response = result.data.get("response")
-        logger_data["trajectory"].append(
-            {
-                "step": step_n,
-                "response": response,
-                "step_history": result.data.get("step_history", None),
-            }
-        )
+        # Keep trajectory logging JSON-serializable and informative for debugging.
+        # NOTE: We intentionally do NOT dump full result.data here because some agents
+        # may include large / non-serializable objects (e.g., numpy arrays).
+        entry = {
+            "step": step_n,
+            "response": response,
+            "step_history": result.data.get("step_history", None),
+            "done": bool(result.done),
+        }
+        if "summary" in result.data and isinstance(result.data.get("summary"), str):
+            entry["summary"] = result.data.get("summary")
+        logger_data["trajectory"].append(entry)
         print("Completed step {:d}.".format(step_n + 1))
         assert constants.STEP_NUMBER not in result.data
         output.append(result.data | {constants.STEP_NUMBER: step_n})

@@ -34,6 +34,61 @@ from android_world.utils import file_utils
 import dm_env
 
 
+_A11Y_FORWARDER_APK_LOCAL_PATH = "/tmp/android_env_accessibility_forwarder.apk"
+
+# Monkeypatch: prefer local cached APK; otherwise download via upstream function
+# and persist it to the local cache path for future runs.
+_ORIG_GET_ACCESSIBILITY_FORWARDER_APK_ATTR = "_CUA_ORIG_GET_ACCESSIBILITY_FORWARDER_APK"
+if not hasattr(a11y_grpc_wrapper, _ORIG_GET_ACCESSIBILITY_FORWARDER_APK_ATTR):
+  setattr(
+      a11y_grpc_wrapper,
+      _ORIG_GET_ACCESSIBILITY_FORWARDER_APK_ATTR,
+      a11y_grpc_wrapper._get_accessibility_forwarder_apk,
+  )
+_ORIG_GET_ACCESSIBILITY_FORWARDER_APK = getattr(
+    a11y_grpc_wrapper, _ORIG_GET_ACCESSIBILITY_FORWARDER_APK_ATTR
+)
+
+
+def _get_accessibility_forwarder_apk_cached() -> bytes:
+  if os.path.isfile(_A11Y_FORWARDER_APK_LOCAL_PATH):
+    try:
+      logging.info(
+          "Loading accessibility forwarder apk from local cache: %s",
+          _A11Y_FORWARDER_APK_LOCAL_PATH,
+      )
+      with open(_A11Y_FORWARDER_APK_LOCAL_PATH, "rb") as f:
+        return f.read()
+    except OSError as e:
+      logging.warning(
+          "Failed to read local cached a11y forwarder apk (%s): %s. Falling back to download.",
+          _A11Y_FORWARDER_APK_LOCAL_PATH,
+          e,
+      )
+
+  apk_bytes = _ORIG_GET_ACCESSIBILITY_FORWARDER_APK()
+  try:
+    os.makedirs(os.path.dirname(_A11Y_FORWARDER_APK_LOCAL_PATH), exist_ok=True)
+    with open(_A11Y_FORWARDER_APK_LOCAL_PATH, "wb") as f:
+      f.write(apk_bytes)
+    logging.info(
+        "Saved accessibility forwarder apk to local cache: %s",
+        _A11Y_FORWARDER_APK_LOCAL_PATH,
+    )
+  except OSError as e:
+    logging.warning(
+        "Failed to write local cached a11y forwarder apk (%s): %s",
+        _A11Y_FORWARDER_APK_LOCAL_PATH,
+        e,
+    )
+  return apk_bytes
+
+
+a11y_grpc_wrapper._get_accessibility_forwarder_apk = (
+    _get_accessibility_forwarder_apk_cached
+)
+
+
 def _has_wrapper(
     env: env_interface.AndroidEnvInterface,
     target_wrapper: Any,

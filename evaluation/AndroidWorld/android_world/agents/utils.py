@@ -193,6 +193,9 @@ def qwen3vl_action_transform(action, arguments, width, height) -> Dict[str, Any]
             return {"action_type": "navigate_home"}
         elif button == "back":
             return {"action_type": "navigate_back"}
+        elif button == "enter":
+            # AndroidWorld supports explicit enter via JSONAction(action_type="keyboard_enter").
+            return {"action_type": "keyboard_enter"}
         else:
             raise ValueError(f"Unknown system button: {button}")
     elif action == "open":

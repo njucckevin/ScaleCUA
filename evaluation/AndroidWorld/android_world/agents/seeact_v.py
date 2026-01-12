@@ -28,6 +28,8 @@ import re
 from openai import OpenAI
 import time
 import numpy as np
+import requests
+from collections import deque
 from android_world.env import interface
 from android_world.env import json_action
 from android_world.agents import base_agent
@@ -953,6 +955,17 @@ def _extract_action_text_qwen3vl(block: str) -> str:
     return text.replace("\n", " ")
 
 
+def _extract_action_text_qwen3vl_gemini(block: str) -> str:
+    """Extract text from start of block up to '<tool_call>' (for Gemini-style outputs)."""
+    # # If the model outputs an explicit "Action:" line, reuse the original parser.
+    # if re.search(r"\baction\s*:", block, flags=re.I):
+    #     return _extract_action_text_qwen3vl(block)
+    m = re.search(r"^\s*([\s\S]*?)(?=<tool_call>|$)", block)
+    if not m:
+        return ""
+    return m.group(1).strip()
+
+
 def _parse_tool_call_json(block: str) -> dict[str, Any] | None:
     """Parse JSON inside <tool_call>...</tool_call>."""
     m = re.search(r"<tool_call>\s*([\s\S]*?)\s*</tool_call>", block)
@@ -993,8 +1006,18 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             base_url=model_base_url,
             default_headers=extra_headers,
         )
+
+        # Used for self-deployed model (Not Used)
+        self.model_base_url = model_base_url
+        self._api_request = self._load_test_api_request()
+        
         self.step_his: str = ""
         self.turn_number: int = 0
+
+        # Provide multiple most recent screenshots to the model (hard-coded; user may adjust).
+        self.last_N = 3
+        self._recent_screenshots = deque(maxlen=self.last_N)
+
         # Used to detect repeated actions (avoid infinite loops)
         self.last_action: str | None = None
         self.repeat_time: int = 0
@@ -1004,6 +1027,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self.env.hide_automation_ui()
         self.step_his = ""
         self.turn_number = 0
+        self._recent_screenshots.clear()
         self.last_action = None
         self.repeat_time = 0
 
@@ -1015,7 +1039,19 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         buf = BytesIO()
         PILImage.fromarray(image).save(buf, format='PNG')
         return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
-        
+
+    @staticmethod
+    def _load_test_api_request():
+        """Load api_request() from test_api.py in repo root."""
+        import importlib.util
+        from pathlib import Path
+
+        test_api_path = Path(__file__).resolve().parents[4] / "test_api.py"
+        spec = importlib.util.spec_from_file_location("test_api", str(test_api_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.api_request
+
     def step(self, instruction: str) -> base_agent.AgentInteractionResult:
         self.turn_number += 1
 
@@ -1023,12 +1059,25 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         screenshot = state.pixels.copy()
         # To be consistent with other agents in this file: BGR->RGB (for saving/encoding)
         screenshot = screenshot[:, :, ::-1]
+        self._recent_screenshots.append(screenshot)
         height, width = screenshot.shape[:2]
 
-        system_prompt = QWEN3VL_SYSTEM_PROMPT
+        system_prompt = (
+            QWEN3VL_SYSTEM_PROMPT_LASTN if self.last_N and self.last_N > 1 else QWEN3VL_SYSTEM_PROMPT
+        )
         user_prompt = QWEN3VL_USER_PROMPT.format(
             instruction=instruction, history=self.step_his
         )
+        print(user_prompt)
+
+        # ---------------------------------------------------------------------
+        # Old (OpenAI chat.completions) call - kept for reference, but disabled.
+        # ---------------------------------------------------------------------
+        user_content = [{"type": "text", "text": user_prompt}]
+        for img in list(self._recent_screenshots):
+            user_content.append(
+                {"type": "image_url", "image_url": {"url": self._to_base64_png(img)}}
+            )
 
         messages = [
             {
@@ -1037,19 +1086,60 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             },
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": self._to_base64_png(screenshot)}},
-                ],
+                "content": user_content,
             },
         ]
+        response = ""
+        completion = None
+        for _ in range(5):
+            completion = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=0,
+            )
+            print(completion)
+            try:
+                response = completion.choices[0].message.content or ""
+            except Exception:
+                response = ""
+            if response.strip():
+                break
+            print("sleep 10 seconds and retry")
+            time.sleep(10)
 
-        completion = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=0,
-        )
-        response = completion.choices[0].message.content or ""
+        # # ---------------------------------------------------------------------
+        # # New (our deployed /generate_stream) call - reuse test_api.api_request().
+        # # ---------------------------------------------------------------------
+        # # test_api.py 的 api_request 期待 image_url 是字符串（file:// 或 http(s)://），
+        # # 所以这里将截图写入临时 PNG 文件，并传 file://{path}
+        # import tempfile
+        # from PIL import Image as PILImage
+
+        # with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        #     tmp_path = f.name
+        # PILImage.fromarray(screenshot).save(tmp_path, format="PNG")
+
+        # messages = [
+        #     {"role": "system", "content": system_prompt},
+        #     {
+        #         "role": "user",
+        #         "content": [
+        #             {"type": "text", "text": user_prompt},
+        #             {"type": "image_url", "image_url": f"file://{tmp_path}"},
+        #         ],
+        #     },
+        # ]
+        # response = (
+        #     self._api_request(
+        #         self.model_base_url,
+        #         messages=messages,
+        #         stream=True,
+        #         max_new_tokens=4096,
+        #         timeout_stream=180,
+        #     )
+        #     or ""
+        # )
+
         print(response)
         print("=" * 50)
 
@@ -1059,7 +1149,10 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
                 True, {"summary": "No <tool_call> JSON found in model output.", "response": response}
             )
 
-        op_text = _extract_action_text_qwen3vl(response)
+        if "gemini" in self.model_name:
+            op_text = _extract_action_text_qwen3vl_gemini(response)
+        else:
+            op_text = _extract_action_text_qwen3vl(response)
         if op_text:
             self.step_his += f"Step {self.turn_number}: {op_text}; "
 

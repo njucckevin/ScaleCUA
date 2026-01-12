@@ -1,0 +1,12 @@
+[
+    {
+        "base_task_name": "AudioRecorderRecordAudio",
+        "instruction": "Create a new contact person with the name cckevin and the phone number 18851134288.",
+        "sample_id": "0"
+    },
+    {
+        "base_task_name": "ExpenseDeleteMultiple",
+        "instruction": "Delete the Ride-Sharing expenses from pro expense app",
+        "sample_id": "1"
+    }
+]
