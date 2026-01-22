@@ -229,4 +229,4 @@ evaluation/AndroidWorld/android_world/env/**/*$py.class
 
 # AndroidWorld generated artifacts
 evaluation/AndroidWorld/output/
-evaluation/AndroidWorld/runs/
+evaluation/AndroidWorld/runs/evaluation/AndroidWorld/params/
