@@ -240,3 +240,6 @@ evaluation/AndroidWorld/explore_results/
 
 # AndroidWorld generated artifacts
 evaluation/AndroidWorld/logs/
+
+# iCloud Drive placeholder files
+*.icloud
