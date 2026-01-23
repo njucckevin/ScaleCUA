@@ -229,4 +229,11 @@ evaluation/AndroidWorld/android_world/env/**/*$py.class
 
 # AndroidWorld generated artifacts
 evaluation/AndroidWorld/output/
-evaluation/AndroidWorld/runs/evaluation/AndroidWorld/params/
+evaluation/AndroidWorld/runs/
+evaluation/AndroidWorld/params/
+
+# AndroidWorld generated artifacts
+evaluation/AndroidWorld/explore_results/
+
+# macOS Finder
+.DS_Store
