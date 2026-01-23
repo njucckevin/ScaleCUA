@@ -235,6 +235,9 @@ evaluation/AndroidWorld/params/
 # AndroidWorld generated artifacts
 evaluation/AndroidWorld/explore_results/
 
+# AndroidWorld local dependency / large vendored directory (do not sync via git)
+evaluation/AndroidWorld/android_env/
+
 # macOS Finder
 .DS_Store
 
