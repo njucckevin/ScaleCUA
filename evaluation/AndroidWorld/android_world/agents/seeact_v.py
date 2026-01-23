@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """A Multimodal Autonomous Agent for Android (M3A)."""
+import os
 import re
 import io
 import time
@@ -44,12 +45,49 @@ from android_world.env import interface
 from android_world.env import json_action
 from android_world.env import representation_utils
 
-try:
-    from transformers.models.qwen2_vl.image_processing_qwen2_vl_fast import (  # type: ignore
-        smart_resize,
-    )
-except Exception:  # pragma: no cover
-    smart_resize = None  # type: ignore[assignment]
+# try:
+#     from transformers.models.qwen2_vl.image_processing_qwen2_vl_fast import (  # type: ignore
+#         smart_resize,
+#     )
+# except Exception:  # pragma: no cover
+#     smart_resize = None  # type: ignore[assignment]
+
+def smart_resize(
+    height: int,
+    width: int,
+    factor: int = 28,
+    min_pixels: int = 56 * 56,
+    max_pixels: int = 14 * 14 * 4 * 1280,
+) -> tuple[int, int]:
+    """
+    Rescale height/width to fit within [min_pixels, max_pixels] while keeping
+    aspect ratio and ensuring dimensions are divisible by `factor`.
+    
+    This is a local implementation equivalent to:
+    transformers.models.qwen2_vl.image_processing_qwen2_vl.smart_resize
+    
+    Source: https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py
+    """
+    import math
+    
+    if max(height, width) / min(height, width) > 200:
+        raise ValueError(
+            f"absolute aspect ratio must be smaller than 200, got {max(height, width) / min(height, width)}"
+        )
+    
+    h_bar = round(height / factor) * factor
+    w_bar = round(width / factor) * factor
+    
+    if h_bar * w_bar > max_pixels:
+        beta = math.sqrt((height * width) / max_pixels)
+        h_bar = max(factor, math.floor(height / beta / factor) * factor)
+        w_bar = max(factor, math.floor(width / beta / factor) * factor)
+    elif h_bar * w_bar < min_pixels:
+        beta = math.sqrt(min_pixels / (height * width))
+        h_bar = math.ceil(height * beta / factor) * factor
+        w_bar = math.ceil(width * beta / factor) * factor
+    
+    return h_bar, w_bar
 
 # Utils for Visual Grounding
 
@@ -1056,9 +1094,17 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self.turn_number += 1
 
         state = self.get_post_transition_state()
-        screenshot = state.pixels.copy()
-        # To be consistent with other agents in this file: BGR->RGB (for saving/encoding)
-        screenshot = screenshot[:, :, ::-1]
+        screenshot = state.pixels.copy()  # RGB format from Android
+        
+        # Save screenshot
+        if self.save_dir is not None:
+            try:
+                screenshot_path = os.path.join(self.save_dir, f"screenshot_step{self.turn_number - 1}.png")
+                Image.fromarray(screenshot).save(screenshot_path)
+            except Exception as e:
+                print(f"Failed to save screenshot: {e}")
+        
+        # No color conversion needed - PIL expects RGB, state.pixels provides RGB
         self._recent_screenshots.append(screenshot)
         height, width = screenshot.shape[:2]
 
@@ -1213,3 +1259,248 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         return base_agent.AgentInteractionResult(
             False, {"response": response, "step_history": self.step_his, "parsed": parsed}
         )
+
+def _extract_thinking_qwen25vl(response: str) -> str:
+    """Extract content from <thinking>...</thinking> tags."""
+    m = re.search(r"<thinking>\s*([\s\S]*?)\s*</thinking>", response)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_conclusion_qwen25vl(response: str) -> str:
+    """Extract content from <conclusion>...</conclusion> tags."""
+    m = re.search(r"<conclusion>\s*([\s\S]*?)\s*</conclusion>", response)
+    return m.group(1).strip() if m else ""
+
+
+class Qwen25VL(base_agent.EnvironmentInteractingAgent):
+    """Android GUI Agent based on Qwen2.5VL tool-call output (for AndroidWorld eval).
+
+    - Input: Screenshot + instruction + history
+    - Output: <thinking>...</thinking><tool_call>{...}</tool_call><conclusion>...</conclusion>
+    - Execution: Map to JSONAction by qwen25vl_action_transform(...)
+    
+    Key differences from Qwen3VL:
+    - Uses actual pixel coordinates (via smart_resize) instead of normalized 0-1000
+    - Includes thinking/conclusion tags for step history
+    - Resolution is passed in system prompt
+    """
+
+    def __init__(
+        self,
+        env: interface.AsyncEnv,
+        llm: infer.MultimodalLlmWrapper,
+        name: str = "Qwen25VL",
+        wait_after_action_seconds: float = 2.0,
+        model_base_url: str = "http://127.0.0.1:8000/v1",
+        model_api_key: str = "EMPTY",
+        model_name: str = "",
+        extra_headers: dict[str, str] | None = None,
+        min_pixels: int = 3136,
+        max_pixels: int = 12845056,
+    ):
+        super().__init__(env, name)
+        self.llm = llm
+        self.wait_after_action_seconds = wait_after_action_seconds
+        self.model_name = model_name
+        self.client = OpenAI(
+            api_key=model_api_key,
+            base_url=model_base_url,
+            default_headers=extra_headers,
+        )
+
+        # Used for self-deployed model (Not Used)
+        self.model_base_url = model_base_url
+        
+        self.step_his: str = ""
+        self.turn_number: int = 0
+
+        # Provide multiple most recent screenshots to the model (hard-coded; user may adjust).
+        self.last_N = 1
+        self._recent_screenshots = deque(maxlen=self.last_N)
+
+        # Used to detect repeated actions (avoid infinite loops)
+        self.last_action: str | None = None
+        self.repeat_time: int = 0
+
+        # Qwen2.5VL specific: smart_resize parameters
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
+
+    def reset(self, go_home_on_reset: bool = False):
+        super().reset(go_home_on_reset)
+        self.env.hide_automation_ui()
+        self.step_his = ""
+        self.turn_number = 0
+        self._recent_screenshots.clear()
+        self.last_action = None
+        self.repeat_time = 0
+
+    @staticmethod
+    def _to_base64_png(image: np.ndarray) -> str:
+        import base64
+        from io import BytesIO
+        from PIL import Image as PILImage
+        buf = BytesIO()
+        PILImage.fromarray(image).save(buf, format='PNG')
+        return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
+
+    def step(self, instruction: str) -> base_agent.AgentInteractionResult:
+        self.turn_number += 1
+
+        state = self.get_post_transition_state()
+        screenshot = state.pixels.copy()  # RGB format from Android
+        # screenshot = screenshot[:, :, ::-1]
+        
+        # Save screenshot
+        if self.save_dir is not None:
+            try:
+                screenshot_path = os.path.join(self.save_dir, f"screenshot_step{self.turn_number - 1}.png")
+                Image.fromarray(screenshot).save(screenshot_path)
+            except Exception as e:
+                print(f"Failed to save screenshot: {e}")
+        
+        # No color conversion needed - PIL expects RGB, state.pixels provides RGB
+        self._recent_screenshots.append(screenshot)
+        height, width = screenshot.shape[:2]
+
+        # Compute resized dimensions using smart_resize
+        resized_height, resized_width = smart_resize(
+            height, width,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+        )
+
+        # Format resolution string for prompt
+        resolution_str = f"{resized_width}x{resized_height}"
+
+        # Use Qwen25VL specific prompts
+        system_prompt = Qwen25VL_SYSTEM_PROMPT.format(resolution=resolution_str)
+        user_prompt = QWEN25VL_USER_PROMPT.format(
+            instruction=instruction, history=self.step_his
+        )
+        print(user_prompt)
+
+        # Build message with multiple recent screenshots
+        user_content = [{"type": "text", "text": user_prompt}]
+        for img in list(self._recent_screenshots):
+            user_content.append(
+                {"type": "image_url", "image_url": {"url": self._to_base64_png(img)}}
+            )
+
+        messages = [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": system_prompt}],
+            },
+            {
+                "role": "user",
+                "content": user_content,
+            },
+        ]
+        response = ""
+        completion = None
+        for _ in range(5):
+            completion = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=0,
+            )
+            print(completion)
+            try:
+                response = completion.choices[0].message.content or ""
+            except Exception:
+                response = ""
+            if response.strip():
+                break
+            print("sleep 10 seconds and retry")
+            time.sleep(10)
+
+        print(response)
+        print("=" * 50)
+
+        tool_call = _parse_tool_call_json(response)
+        if not tool_call:
+            return base_agent.AgentInteractionResult(
+                True, {"summary": "No <tool_call> JSON found in model output.", "response": response}
+            )
+
+        # Extract thinking and conclusion for history
+        thinking_text = _extract_thinking_qwen25vl(response)
+        conclusion_text = _extract_conclusion_qwen25vl(response)
+        
+        # Build step history: prefer conclusion, fallback to thinking + tool_call
+        if conclusion_text:
+            step_summary = conclusion_text
+        else:
+            # Fallback: use thinking + tool_call string format
+            tool_call_str = json.dumps(tool_call, ensure_ascii=False) if tool_call else ""
+            if thinking_text and tool_call_str:
+                step_summary = f"{thinking_text} {tool_call_str}"
+            elif thinking_text:
+                step_summary = thinking_text
+            elif tool_call_str:
+                step_summary = tool_call_str
+            else:
+                step_summary = ""
+        
+        if step_summary:
+            self.step_his += f"Step {self.turn_number}: {step_summary}; "
+
+        # Compatible: tool_call may look like {"name":"mobile_use","arguments":{...}}
+        args = tool_call.get("arguments", {}) if isinstance(tool_call, dict) else {}
+        action_name = args.get("action", "")
+        try:
+            parsed = qwen25vl_action_transform(
+                action_name, args, width, height, resized_width, resized_height
+            )
+            print(parsed)
+        except Exception as e:
+            return base_agent.AgentInteractionResult(
+                True,
+                {
+                    "summary": f"Failed to transform tool-call into action: {e}",
+                    "response": response,
+                    "tool_call": tool_call,
+                },
+            )
+
+        # Record last_action + repeat_time
+        try:
+            action_sig = json.dumps(args, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            action_sig = str(args)
+        if self.last_action == action_sig:
+            self.repeat_time += 1
+        else:
+            self.repeat_time = 0
+        self.last_action = action_sig
+
+        try:
+            act = json_action.JSONAction(**parsed)
+            self.env.execute_action(act)
+            time.sleep(self.wait_after_action_seconds)
+        except Exception:
+            print("Failed to execute action:", parsed)
+
+        if parsed.get("action_type") == "status":
+            return base_agent.AgentInteractionResult(
+                True, {"response": response, "step_history": self.step_his, "parsed": parsed}
+            )
+
+        # If repeated actions reach the threshold: terminate immediately to avoid deadlock
+        if self.repeat_time >= 3:
+            return base_agent.AgentInteractionResult(
+                True,
+                {
+                    "summary": "Terminated due to repeated identical actions.",
+                    "response": response,
+                    "step_history": self.step_his,
+                    "parsed": parsed,
+                    "repeat_time": self.repeat_time,
+                },
+            )
+
+        return base_agent.AgentInteractionResult(
+            False, {"response": response, "step_history": self.step_his, "parsed": parsed}
+        )
+

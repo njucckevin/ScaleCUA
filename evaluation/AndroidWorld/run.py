@@ -241,6 +241,14 @@ def _get_agent(
             model_api_key=_QWEN3VL_MODEL_API_KEY.value,
             model_name=_QWEN3VL_MODEL_NAME.value,
         )
+    elif _AGENT_NAME.value == "qwen25vl":
+        agent = seeact_v.Qwen25VL(
+            env,
+            infer.Gpt4Wrapper("gpt-4o"),
+            model_base_url=_QWEN3VL_MODEL_BASE_URL.value,
+            model_api_key=_QWEN3VL_MODEL_API_KEY.value,
+            model_name=_QWEN3VL_MODEL_NAME.value,
+        )
 
     if not agent:
         raise ValueError(f"Unknown agent: {_AGENT_NAME.value}")

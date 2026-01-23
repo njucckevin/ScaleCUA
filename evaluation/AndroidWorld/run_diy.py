@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pickle
 from collections.abc import Sequence
 from typing import Any, Type
 
@@ -169,8 +170,15 @@ _INPUT_JSON = flags.DEFINE_string(
 )
 _OUTPUT_DIR = flags.DEFINE_string(
     "output_dir",
-    "runs_diy",
+    None,
     "Output directory for trajectories (relative to evaluation/AndroidWorld).",
+)
+
+_USE_PARAMS_INIT = flags.DEFINE_boolean(
+    "use_params_init",
+    True,
+    "If True, load params from each sample's 'params_path' (pickle) instead of "
+    "calling task_type.generate_random_params().",
 )
 
 # MiniWoB is very lightweight and new screens/View Hierarchy load quickly.
@@ -229,6 +237,14 @@ def _get_agent(
             model_api_key=_QWEN3VL_MODEL_API_KEY.value,
             model_name=_QWEN3VL_MODEL_NAME.value,
         )
+    elif _AGENT_NAME.value == "qwen25vl":
+        agent = seeact_v.Qwen25VL(
+            env,
+            infer.Gpt4Wrapper("gpt-4o"),
+            model_base_url=_QWEN3VL_MODEL_BASE_URL.value,
+            model_api_key=_QWEN3VL_MODEL_API_KEY.value,
+            model_name=_QWEN3VL_MODEL_NAME.value,
+        )
 
     if not agent:
         raise ValueError(f"Unknown agent: {_AGENT_NAME.value}")
@@ -253,9 +269,19 @@ def _read_samples(path: str) -> list[dict[str, str]]:
     for i, item in enumerate(data):
         if not isinstance(item, dict):
             raise ValueError(f"Item {i} must be an object.")
-        for k in ("base_task_name", "instruction", "sample_id"):
-            if k not in item or not isinstance(item[k], str) or not item[k]:
+        # Normalize/validate required fields.
+        # NOTE: Some datasets store `sample_id` as an int. We accept int/str and
+        # normalize to str so downstream code can assume a stable type.
+        for k in ("base_task_name", "instruction"):
+            if k not in item or not isinstance(item[k], str) or not item[k].strip():
                 raise ValueError(f"Item {i} missing/invalid field: {k}")
+
+        if "sample_id" not in item or item["sample_id"] is None:
+            raise ValueError(f"Item {i} missing/invalid field: sample_id")
+        if isinstance(item["sample_id"], int):
+            item["sample_id"] = str(item["sample_id"])
+        if not isinstance(item["sample_id"], str) or not item["sample_id"].strip():
+            raise ValueError(f"Item {i} missing/invalid field: sample_id")
     return data  # type: ignore[return-value]
 
 
@@ -274,6 +300,7 @@ def _main() -> None:
         raise ValueError("--input_json is required.")
 
     samples = _read_samples(_INPUT_JSON.value)
+    params_dir = "./params"
 
     env = env_launcher.load_and_setup_env(
         console_port=_DEVICE_CONSOLE_PORT.value,
@@ -302,6 +329,8 @@ def _main() -> None:
     for idx, item in enumerate(samples):
         base_task_name = item["base_task_name"]
         instruction = item["instruction"]
+        if instruction != "In the Files app, navigate to the Downloads folder, find the image file named 'image_file_2023...', and delete it.":
+            continue
         sample_id = item["sample_id"]
 
         if base_task_name not in task_registry:
@@ -319,8 +348,16 @@ def _main() -> None:
         task_type.set_device_time(env)
         import random as _random  # local to keep file minimal
 
-        _random.seed(seed)
-        params: dict[str, Any] = task_type.generate_random_params()
+        if _USE_PARAMS_INIT.value:
+            print("load params")
+            task_id = item["task_id"]
+            params_filename = task_id+"_params.pkl"
+            params_path = os.path.join(params_dir, params_filename)
+            params = pickle.load(open(params_path, "rb"))
+        else:
+            _random.seed(seed)
+            params = task_type.generate_random_params()
+
         params[constants.EpisodeConstants.SEED] = seed
         task = task_type(params)
 
@@ -330,6 +367,7 @@ def _main() -> None:
         print(f"[{idx+1}/{len(samples)}] base_task={base_task_name} sample_id={sample_id}")
         try:
             task.initialize_task(env)
+            input("init complete")
             # NOTE: use instruction (not task.goal)
             run_episode(
                 goal=instruction,

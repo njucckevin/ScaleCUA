@@ -219,6 +219,76 @@ def qwen3vl_action_transform(action, arguments, width, height) -> Dict[str, Any]
         return {'action_type': 'wait'}
 
 
+def qwen25vl_action_transform(
+    action: str,
+    arguments: Dict[str, Any],
+    width: int,
+    height: int,
+    resized_width: int,
+    resized_height: int,
+) -> Dict[str, Any]:
+    """Transform Qwen2.5VL tool-call action to AndroidWorld JSONAction format.
+    
+    Qwen2.5VL uses pixel coordinates based on smart_resize dimensions,
+    not normalized 0-1000 like Qwen3VL. We need to map coordinates from
+    resized dimensions back to original screen dimensions.
+    """
+    if action == "key":
+        return {"action_type": "wait"}
+    elif action == "click" or action == "left_click":
+        coordinate = arguments.get("coordinate", [0, 0])
+        x, y = coordinate
+        # Map from resized coordinates to original screen coordinates
+        x = x / resized_width * width
+        y = y / resized_height * height
+        return {"action_type": "click", "x": x, "y": y}
+    elif action == "long_press":
+        coordinate = arguments.get("coordinate", [0, 0])
+        x, y = coordinate
+        x = x / resized_width * width
+        y = y / resized_height * height
+        return {"action_type": "long_press", "x": x, "y": y}
+    elif action == "swipe":
+        coordinate = arguments.get("coordinate", [0, 0])
+        coordinate2 = arguments.get("coordinate2", [0, 0])
+        x0 = coordinate[0] / resized_width * width
+        y0 = coordinate[1] / resized_height * height
+        x1 = coordinate2[0] / resized_width * width
+        y1 = coordinate2[1] / resized_height * height
+        dir_ = _dir_from_coords(x0, y0, x1, y1)
+        return {"action_type": "scroll", "direction": reverse_direction(dir_)}
+    elif action == "type":
+        text = arguments.get("text", "")
+        return {"action_type": "input_text", "text": text}
+    elif action == "answer":
+        return {"action_type": "answer", "text": arguments.get("text", "")}
+    elif action == "system_button":
+        button = arguments.get("button", "").lower()
+        if button == "home":
+            return {"action_type": "navigate_home"}
+        elif button == "back":
+            return {"action_type": "navigate_back"}
+        elif button == "enter":
+            return {"action_type": "keyboard_enter"}
+        else:
+            raise ValueError(f"Unknown system button: {button}")
+    elif action == "open":
+        text = arguments.get("text", "")
+        return {"action_type": "open_app", "app_name": text}
+    elif action == "wait":
+        return {"action_type": "wait"}
+    elif action == "terminate":
+        status = arguments.get("status", "").lower()
+        if status == "success":
+            return {"action_type": "status", "goal_status": "complete"}
+        elif status == "failure":
+            return {"action_type": "status", "goal_status": "infeasible"}
+        else:
+            raise ValueError(f"Unknown terminate status: {status}")
+    else:
+        return {"action_type": "wait"}
+
+
 def action_coord(action):
     def extract_click_json(s):
         m = re.search(
