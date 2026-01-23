@@ -14,7 +14,7 @@ numpy==1.26.3
 # opencv-python==4.11.0.86  # 使用 conda 安装: conda install -c conda-forge opencv
 pandas==2.1.4
 pydub
-protobuf>=6.0.0  # 必需：android_env 的 proto 文件是用 6.31.1 生成的，需要 6.x 版本
+protobuf  # 必需：android_env 的 proto 文件是用 6.31.1 生成的，需要 6.x 版本
 pysqlite3>=0.5.4  # 必需：用于 SQLite 操作（使用版本范围以支持不同平台）
 python-Levenshtein
 pytest

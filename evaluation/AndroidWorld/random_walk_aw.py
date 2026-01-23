@@ -384,6 +384,18 @@ def _main() -> None:
 
   aw_list = list(aw_registry.items())
   random.shuffle(aw_list)
+
+  # Only collect data from a small set of target apps.
+  _TARGET_APPS = {
+      "Contacts",
+      "Audio Recorder",
+      "Camera",
+      "Simple Gallery Pro",
+      "Simple Draw Pro",
+  }
+  aw_list = [(task_name, task_type) for task_name, task_type in aw_list
+             if get_task_app(task_name) in _TARGET_APPS]
+
   aw_registry = dict(aw_list)
 
   # Record unclickable elements for each app
