@@ -237,3 +237,6 @@ evaluation/AndroidWorld/explore_results/
 
 # macOS Finder
 .DS_Store
+
+# AndroidWorld generated artifacts
+evaluation/AndroidWorld/logs/
