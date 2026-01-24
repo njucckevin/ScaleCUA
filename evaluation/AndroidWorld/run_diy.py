@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import pickle
+import shutil
 from collections.abc import Sequence
 from typing import Any, Type
 
@@ -329,8 +330,8 @@ def _main() -> None:
     for idx, item in enumerate(samples):
         base_task_name = item["base_task_name"]
         instruction = item["instruction"]
-        if instruction != "In the Files app, navigate to the Downloads folder, find the image file named 'image_file_2023...', and delete it.":
-            continue
+        # if instruction != "Navigate to the Files tab in the Markor app, open the file named 'backup_favorite_book_quotes.md', and append the quote 'Knowledge is power' to the end of the document.":
+        #     continue
         sample_id = item["sample_id"]
 
         if base_task_name not in task_registry:
@@ -358,21 +359,35 @@ def _main() -> None:
             _random.seed(seed)
             params = task_type.generate_random_params()
 
-        params[constants.EpisodeConstants.SEED] = seed
+        # params[constants.EpisodeConstants.SEED] = seed
+        # 检验params有seed
+        if constants.EpisodeConstants.SEED not in params:
+            raise ValueError(f"params does not have seed: {params}")
+        
         task = task_type(params)
 
         save_dir = os.path.join(base_out, sample_id+'_'+base_task_name)
+        # Resume support:
+        # - If a previous run already produced a result, skip.
+        # - If the directory exists but no result, it indicates an incomplete run; wipe it and rerun.
+        result_path = os.path.join(save_dir, "result.json")
+        if os.path.exists(result_path):
+            print(f"[{idx+1}/{len(samples)}] SKIP (exists): {save_dir}")
+            continue
+        if os.path.exists(save_dir):
+            shutil.rmtree(save_dir)
         _ensure_dir(save_dir)
 
         print(f"[{idx+1}/{len(samples)}] base_task={base_task_name} sample_id={sample_id}")
         try:
             task.initialize_task(env)
-            input("init complete")
+            print("init complete")
             # NOTE: use instruction (not task.goal)
+            max_n = min(suite_utils._allocate_step_budget(task.complexity), 30)
             run_episode(
                 goal=instruction,
                 agent=agent,
-                max_n_steps=suite_utils._allocate_step_budget(task.complexity),  # reuse
+                max_n_steps=max_n,  # reuse
                 start_on_home_screen=task.start_on_home_screen,
                 termination_fn=None,  # keep simple; you can add MiniWoB termination if needed
                 save_dir=save_dir,

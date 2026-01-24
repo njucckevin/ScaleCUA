@@ -196,6 +196,10 @@ def qwen3vl_action_transform(action, arguments, width, height) -> Dict[str, Any]
         elif button == "enter":
             # AndroidWorld supports explicit enter via JSONAction(action_type="keyboard_enter").
             return {"action_type": "keyboard_enter"}
+        elif button == "menu":
+            # AndroidWorld JSONAction doesn't expose a dedicated MENU key.
+            # Treat it as a no-op to avoid terminating the episode.
+            return {"action_type": "wait"}
         else:
             raise ValueError(f"Unknown system button: {button}")
     elif action == "open":

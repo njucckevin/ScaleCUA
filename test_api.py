@@ -124,26 +124,26 @@ def api_request(
 
 if __name__ == '__main__':
 
-    client = OpenAI(
-        api_key="EMPTY",
-        base_url="http://10.210.9.11:32011/v1",
-    )
-    print("call api...")
-    messages=[
-        {'role': 'user', 
-        'content': [
-            {'type': 'text', 'text': 'hello, who are you?'},
-        ]}
-    ]
-    completion = client.chat.completions.create(
-        model='Qwen2.5-VL-7B-Instruct',
-        messages=messages,
-        temperature=0,
-    )
-    raw = completion.to_json()
-    data = json.loads(raw)
-    content = data["choices"][0]["message"]["content"]
-    print(f'received output: {content}')
+    # client = OpenAI(
+    #     api_key="EMPTY",
+    #     base_url="http://10.210.9.11:32011/v1",
+    # )
+    # print("call api...")
+    # messages=[
+    #     {'role': 'user', 
+    #     'content': [
+    #         {'type': 'text', 'text': 'hello, who are you?'},
+    #     ]}
+    # ]
+    # completion = client.chat.completions.create(
+    #     model='Qwen2.5-VL-7B-Instruct',
+    #     messages=messages,
+    #     temperature=0,
+    # )
+    # raw = completion.to_json()
+    # data = json.loads(raw)
+    # content = data["choices"][0]["message"]["content"]
+    # print(f'received output: {content}')
 
     # url = f'http://10.210.6.10:20903/generate_stream'
     # print(f'api test: url={url}')
@@ -171,22 +171,22 @@ if __name__ == '__main__':
     # else:
     #     exit(-1)
 
-    # client = OpenAI(
-    #     api_key="sk-ZLu0wx5926rEQanPHOpx9nAdwH3ZQWwA0d9V4bRrYvZNiVFr",
-    #     base_url="https://api.ppchat.vip/v1"
-    # )
+    client = OpenAI(
+        api_key="sk-msxoHjQv4oPTtngKR9VzDLQn4WQ1Ge9b5H12YHUF7aeosivs",
+        base_url="https://api.ppchat.vip/v1"
+    )
 
-    # print("开始测试对话...")
+    print("开始测试对话...")
 
-    # response = client.chat.completions.create(
-    #     model="gpt-5.1",
-    #     messages=[
-    #         {"role": "system", "content": "You are a helpful assistant."},
-    #         {
-    #             "role": "user",
-    #             "content": "Hi, who are you?"
-    #         }
-    #     ]
-    # )
-    # print(response.choices[0].message.content)
+    response = client.chat.completions.create(
+        model="gemini-3-pro-preview",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {
+                "role": "user",
+                "content": "Hi, who are you?"
+            }
+        ]
+    )
+    print(response.choices[0].message.content)
 

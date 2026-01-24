@@ -994,14 +994,18 @@ def _extract_action_text_qwen3vl(block: str) -> str:
 
 
 def _extract_action_text_qwen3vl_gemini(block: str) -> str:
-    """Extract text from start of block up to '<tool_call>' (for Gemini-style outputs)."""
+    """Extract the <thinking>...</thinking> content (for Gemini-style outputs)."""
     # # If the model outputs an explicit "Action:" line, reuse the original parser.
     # if re.search(r"\baction\s*:", block, flags=re.I):
     #     return _extract_action_text_qwen3vl(block)
-    m = re.search(r"^\s*([\s\S]*?)(?=<tool_call>|$)", block)
-    if not m:
+    m = re.search(r"<thinking>\s*([\s\S]*?)\s*</thinking>", block)
+    if m:
+        return m.group(1).strip()
+    # Fallback: extract prefix before tool_call.
+    m2 = re.search(r"^\s*([\s\S]*?)(?=<tool_call>|$)", block)
+    if not m2:
         return ""
-    return m.group(1).strip()
+    return m2.group(1).strip()
 
 
 def _parse_tool_call_json(block: str) -> dict[str, Any] | None:
@@ -1108,12 +1112,25 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self._recent_screenshots.append(screenshot)
         height, width = screenshot.shape[:2]
 
-        system_prompt = (
-            QWEN3VL_SYSTEM_PROMPT_LASTN if self.last_N and self.last_N > 1 else QWEN3VL_SYSTEM_PROMPT
-        )
-        user_prompt = QWEN3VL_USER_PROMPT.format(
-            instruction=instruction, history=self.step_his
-        )
+        # Use Gemini3Pro prompt format when model name contains "gemini".
+        if "gemini" in (self.model_name or "").lower():
+            system_prompt = (
+                GEMINI3PRO_SYSTEM_PROMPT_LASTN
+                if self.last_N and self.last_N > 1
+                else GEMINI3PRO_SYSTEM_PROMPT
+            )
+            user_prompt = GEMINI3PRO_USER_PROMPT.format(
+                instruction=instruction, history=self.step_his
+            )
+        else:
+            system_prompt = (
+                QWEN3VL_SYSTEM_PROMPT_LASTN
+                if self.last_N and self.last_N > 1
+                else QWEN3VL_SYSTEM_PROMPT
+            )
+            user_prompt = QWEN3VL_USER_PROMPT.format(
+                instruction=instruction, history=self.step_his
+            )
         print(user_prompt)
 
         # ---------------------------------------------------------------------
@@ -1143,7 +1160,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
                 messages=messages,
                 temperature=0,
             )
-            print(completion)
+            # print(completion)
             try:
                 response = completion.choices[0].message.content or ""
             except Exception:
@@ -1199,8 +1216,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             op_text = _extract_action_text_qwen3vl_gemini(response)
         else:
             op_text = _extract_action_text_qwen3vl(response)
-        if op_text:
-            self.step_his += f"Step {self.turn_number}: {op_text}; "
+        self.step_his += f"Step {self.turn_number}: {op_text}; "
 
         # Compatible: tool_call may look like {"name":"mobile_use","arguments":{...}}
         args = tool_call.get("arguments", {}) if isinstance(tool_call, dict) else {}
