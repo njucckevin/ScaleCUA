@@ -383,7 +383,7 @@ def _main() -> None:
             task.initialize_task(env)
             print("init complete")
             # NOTE: use instruction (not task.goal)
-            max_n = min(suite_utils._allocate_step_budget(task.complexity), 30)
+            max_n = 30
             run_episode(
                 goal=instruction,
                 agent=agent,
