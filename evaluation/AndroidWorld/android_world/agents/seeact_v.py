@@ -1234,6 +1234,17 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
                 },
             )
 
+        # If model outputs an answer, persist it and stop immediately.
+        if parsed.get("action_type") == "answer":
+            try:
+                act = json_action.JSONAction(**parsed)
+                self.env.execute_action(act)
+            except Exception:
+                print("Failed to execute answer action:", parsed)
+            return base_agent.AgentInteractionResult(
+                True, {"response": response, "step_history": self.step_his, "parsed": parsed}
+            )
+
         # Record last_action + repeat_time (previous code had these fields but not working)
         # Here, use the tool-call's arguments as the "action signature", which is more robust than checking 'terminate' in a string.
         try:
@@ -1478,6 +1489,17 @@ class Qwen25VL(base_agent.EnvironmentInteractingAgent):
                     "response": response,
                     "tool_call": tool_call,
                 },
+            )
+
+        # If model outputs an answer, persist it and stop immediately.
+        if parsed.get("action_type") == "answer":
+            try:
+                act = json_action.JSONAction(**parsed)
+                self.env.execute_action(act)
+            except Exception:
+                print("Failed to execute answer action:", parsed)
+            return base_agent.AgentInteractionResult(
+                True, {"response": response, "step_history": self.step_his, "parsed": parsed}
             )
 
         # Record last_action + repeat_time
