@@ -37,7 +37,6 @@ import hashlib
 import json
 import os
 import pickle
-import shutil
 from collections.abc import Sequence
 from typing import Any, Type
 
@@ -345,6 +344,12 @@ def _main() -> None:
             instance_id = instance_counters.get(base_task_name, 0)
             instance_counters[base_task_name] = instance_id + 1
 
+        # Simple resume behavior: if save_dir exists, skip (avoid re-running buggy/incomplete samples).
+        save_dir = os.path.join(base_out, sample_id + "_" + base_task_name)
+        if os.path.exists(save_dir):
+            print(f"[{idx+1}/{len(samples)}] SKIP (dir exists): {save_dir}")
+            continue
+
         seed = _derive_instance_seed(_TASK_RANDOM_SEED.value, base_task_name, instance_id)
         task_type.set_device_time(env)
         import random as _random  # local to keep file minimal
@@ -365,17 +370,6 @@ def _main() -> None:
             raise ValueError(f"params does not have seed: {params}")
         
         task = task_type(params)
-
-        save_dir = os.path.join(base_out, sample_id+'_'+base_task_name)
-        # Resume support:
-        # - If a previous run already produced a result, skip.
-        # - If the directory exists but no result, it indicates an incomplete run; wipe it and rerun.
-        result_path = os.path.join(save_dir, "result.json")
-        if os.path.exists(result_path):
-            print(f"[{idx+1}/{len(samples)}] SKIP (exists): {save_dir}")
-            continue
-        if os.path.exists(save_dir):
-            shutil.rmtree(save_dir)
         _ensure_dir(save_dir)
 
         print(f"[{idx+1}/{len(samples)}] base_task={base_task_name} sample_id={sample_id}")
