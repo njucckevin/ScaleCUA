@@ -1057,7 +1057,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self.turn_number: int = 0
 
         # Provide multiple most recent screenshots to the model (hard-coded; user may adjust).
-        self.last_N = 3
+        self.last_N = 1
         self._recent_screenshots = deque(maxlen=self.last_N)
 
         # Used to detect repeated actions (avoid infinite loops)
@@ -1114,11 +1114,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
 
         # Use Gemini3Pro prompt format when model name contains "gemini".
         if "gemini" in (self.model_name or "").lower():
-            system_prompt = (
-                GEMINI3PRO_SYSTEM_PROMPT_LASTN
-                if self.last_N and self.last_N > 1
-                else GEMINI3PRO_SYSTEM_PROMPT
-            )
+            system_prompt = GEMINI3PRO_SYSTEM_PROMPT_AdditionalNotes
             user_prompt = GEMINI3PRO_USER_PROMPT.format(
                 instruction=instruction, history=self.step_his
             )
@@ -1271,7 +1267,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             )
 
         # If repeated actions reach the threshold: terminate immediately to avoid deadlock in evaluation
-        if self.repeat_time >= 3:
+        if self.repeat_time >= 10:
             return base_agent.AgentInteractionResult(
                 True,
                 {
@@ -1458,18 +1454,21 @@ class Qwen25VL(base_agent.EnvironmentInteractingAgent):
         # Build step history: prefer conclusion, fallback to thinking + tool_call
         if conclusion_text:
             step_summary = conclusion_text
+        elif thinking_text:
+            step_summary = thinking_text
         else:
-            # Fallback: use thinking + tool_call string format
-            tool_call_str = json.dumps(tool_call, ensure_ascii=False) if tool_call else ""
-            if thinking_text and tool_call_str:
-                step_summary = f"{thinking_text} {tool_call_str}"
-            elif thinking_text:
-                step_summary = thinking_text
-            elif tool_call_str:
-                step_summary = tool_call_str
-            else:
-                step_summary = ""
-        
+            step_summary = ""
+        # else:
+        #     # Fallback: use thinking + tool_call string format
+        #     tool_call_str = json.dumps(tool_call, ensure_ascii=False) if tool_call else ""
+        #     if thinking_text and tool_call_str:
+        #         step_summary = f"{thinking_text} {tool_call_str}"
+        #     elif thinking_text:
+        #         step_summary = thinking_text
+        #     elif tool_call_str:
+        #         step_summary = tool_call_str
+        #     else:
+        #         step_summary = ""
         if step_summary:
             self.step_his += f"Step {self.turn_number}: {step_summary}; "
 
@@ -1526,7 +1525,7 @@ class Qwen25VL(base_agent.EnvironmentInteractingAgent):
             )
 
         # If repeated actions reach the threshold: terminate immediately to avoid deadlock
-        if self.repeat_time >= 3:
+        if self.repeat_time >= 10:
             return base_agent.AgentInteractionResult(
                 True,
                 {

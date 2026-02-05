@@ -354,13 +354,13 @@ def _main() -> None:
   BASE_DIR = './explore_results'
   os.makedirs(BASE_DIR, exist_ok=True)
 
-  SCREEN_DIR = os.path.join(BASE_DIR, 'screenshots')
+  SCREEN_DIR = os.path.join(BASE_DIR, 'screenshots_0205')
   os.makedirs(SCREEN_DIR, exist_ok=True)
 
-  TRAJECTORY_DIR = os.path.join(BASE_DIR, 'trajectories')
+  TRAJECTORY_DIR = os.path.join(BASE_DIR, 'trajectories_0205')
   os.makedirs(TRAJECTORY_DIR, exist_ok=True)
 
-  PARAMS_DIR = os.path.join(BASE_DIR, 'params')
+  PARAMS_DIR = os.path.join(BASE_DIR, 'params_0205')
   os.makedirs(PARAMS_DIR, exist_ok=True)
 
   # Launch Android emulator (ADB) and return to home screen
@@ -385,16 +385,16 @@ def _main() -> None:
   aw_list = list(aw_registry.items())
   random.shuffle(aw_list)
 
-  # Only collect data from a small set of target apps.
-  _TARGET_APPS = {
-      "Contacts",
-      "Audio Recorder",
-      "Camera",
-      "Simple Gallery Pro",
-      "Simple Draw Pro",
-  }
-  aw_list = [(task_name, task_type) for task_name, task_type in aw_list
-             if get_task_app(task_name) in _TARGET_APPS]
+#   # Only collect data from a small set of target apps.
+#   _TARGET_APPS = {
+#       "Contacts",
+#       "Audio Recorder",
+#       "Camera",
+#       "Simple Gallery Pro",
+#       "Simple Draw Pro",
+#   }
+#   aw_list = [(task_name, task_type) for task_name, task_type in aw_list
+#              if get_task_app(task_name) in _TARGET_APPS]
 
   aw_registry = dict(aw_list)
 
@@ -417,7 +417,8 @@ def _main() -> None:
       # - Same task_name => same seed (instance_id fixed to 0).
       # - random.seed(seed) BEFORE generate_random_params()
       # - write seed into params BEFORE saving
-      instance_id = 0
+      # instance_id = 0
+      instance_id = random.randint(0, 1000000)
       seed = _derive_instance_seed(_TASK_RANDOM_SEED.value, task_name, instance_id)
       task_type.set_device_time(env)
       random.seed(seed)

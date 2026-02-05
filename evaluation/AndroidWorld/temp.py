@@ -102,71 +102,71 @@ import requests
 # Explore results statistics
 # ---------------------------
 
-# _EXPLORE_TRAJ_DIR = Path(__file__).resolve().parent / "explore_results" / "trajectories"
+_EXPLORE_TRAJ_DIR = Path(__file__).resolve().parent / "explore_results" / "trajectories_0205"
 
 
-# def _summarize_explore_trajectories(traj_dir: Path = _EXPLORE_TRAJ_DIR) -> None:
-#     """统计 explore_results/trajectories 下的轨迹数量与 step 分布。
+def _summarize_explore_trajectories(traj_dir: Path = _EXPLORE_TRAJ_DIR) -> None:
+    """统计 explore_results/trajectories 下的轨迹数量与 step 分布。
 
-#     - 轨迹条数：json 文件数量
-#     - step 数：每个 json 文件内 list 的长度
-#     - app 聚合：每个文件用第一个 step 的 "app" 字段归类（文件级别 app）
-#     """
-#     if not traj_dir.exists():
-#         print(f"[STATS] Trajectory dir not found: {traj_dir}")
-#         return
+    - 轨迹条数：json 文件数量
+    - step 数：每个 json 文件内 list 的长度
+    - app 聚合：每个文件用第一个 step 的 "app" 字段归类（文件级别 app）
+    """
+    if not traj_dir.exists():
+        print(f"[STATS] Trajectory dir not found: {traj_dir}")
+        return
 
-#     traj_files = sorted(traj_dir.glob("*.json"))
-#     total_traj = len(traj_files)
-#     total_steps = 0
-#     steps_per_traj: list[int] = []
-#     steps_by_app: Counter[str] = Counter()
-#     bad_files: list[str] = []
+    traj_files = sorted(traj_dir.glob("*.json"))
+    total_traj = len(traj_files)
+    total_steps = 0
+    steps_per_traj: list[int] = []
+    steps_by_app: Counter[str] = Counter()
+    bad_files: list[str] = []
 
-#     for p in traj_files:
-#         try:
-#             obj = json.loads(p.read_text(encoding="utf-8"))
-#         except Exception:
-#             bad_files.append(p.name)
-#             continue
+    for p in traj_files:
+        try:
+            obj = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            bad_files.append(p.name)
+            continue
 
-#         if not isinstance(obj, list):
-#             bad_files.append(p.name)
-#             continue
+        if not isinstance(obj, list):
+            bad_files.append(p.name)
+            continue
 
-#         n_steps = len(obj)
-#         steps_per_traj.append(n_steps)
-#         total_steps += n_steps
+        n_steps = len(obj)
+        steps_per_traj.append(n_steps)
+        total_steps += n_steps
 
-#         app_name = "UNKNOWN"
-#         if n_steps > 0 and isinstance(obj[0], dict):
-#             app_name = str(obj[0].get("app", "UNKNOWN"))
-#         steps_by_app[app_name] += n_steps
+        app_name = "UNKNOWN"
+        if n_steps > 0 and isinstance(obj[0], dict):
+            app_name = str(obj[0].get("app", "UNKNOWN"))
+        steps_by_app[app_name] += n_steps
 
-#     print(f"[STATS] Trajectory dir: {traj_dir}")
-#     print(f"[STATS] Trajectories: {total_traj}")
-#     print(f"[STATS] Total steps: {total_steps}")
-#     if steps_per_traj:
-#         print(
-#             "[STATS] Steps per trajectory: "
-#             f"min={min(steps_per_traj)} max={max(steps_per_traj)} avg={total_steps/len(steps_per_traj):.2f}"
-#         )
+    print(f"[STATS] Trajectory dir: {traj_dir}")
+    print(f"[STATS] Trajectories: {total_traj}")
+    print(f"[STATS] Total steps: {total_steps}")
+    if steps_per_traj:
+        print(
+            "[STATS] Steps per trajectory: "
+            f"min={min(steps_per_traj)} max={max(steps_per_traj)} avg={total_steps/len(steps_per_traj):.2f}"
+        )
 
-#     print("[STATS] Steps by app:")
-#     for app, cnt in steps_by_app.most_common():
-#         print(f"  - {app}: {cnt}")
+    print("[STATS] Steps by app:")
+    for app, cnt in steps_by_app.most_common():
+        print(f"  - {app}: {cnt}")
 
-#     if bad_files:
-#         print(f"[STATS] Bad/unreadable trajectory files: {len(bad_files)}")
-#         for name in bad_files[:20]:
-#             print(f"  - {name}")
-#         if len(bad_files) > 20:
-#             print("  - ...")
+    if bad_files:
+        print(f"[STATS] Bad/unreadable trajectory files: {len(bad_files)}")
+        for name in bad_files[:20]:
+            print(f"  - {name}")
+        if len(bad_files) > 20:
+            print("  - ...")
 
 
-# # 直接运行 temp.py 时打印统计（不需要 main 函数）
-# if __name__ == "__main__":
-#     _summarize_explore_trajectories()
+# 直接运行 temp.py 时打印统计（不需要 main 函数）
+if __name__ == "__main__":
+    _summarize_explore_trajectories()
 
 
 # def _test_openai_api_hello() -> None:
@@ -351,16 +351,119 @@ import requests
 #     main()
 
 
-import random
+# import random
 
-syn_data = json.load(open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid.json", "r"))
-random.shuffle(syn_data)
-print(len(syn_data))
+# syn_data = json.load(open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid.json", "r"))
+# random.shuffle(syn_data)
+# print(len(syn_data))
 
-syn_data_1 = syn_data[:300]
-syn_data_2 = syn_data[300:600]
-syn_data_3 = syn_data[600:]
+# syn_data_1 = syn_data[:300]
+# syn_data_2 = syn_data[300:600]
+# syn_data_3 = syn_data[600:]
 
-json.dump(syn_data_1, open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid_split1.json", "w"), indent=4)
-json.dump(syn_data_2, open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid_split2.json", "w"), indent=4)
-json.dump(syn_data_3, open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid_split3.json", "w"), indent=4)
+# json.dump(syn_data_1, open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid_split1.json", "w"), indent=4)
+# json.dump(syn_data_2, open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid_split2.json", "w"), indent=4)
+# json.dump(syn_data_3, open("/Users/cckevin/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid_split3.json", "w"), indent=4)
+
+
+# # ---------------------------
+# # Temporary: summarize success rate from result_*.csv
+# # ---------------------------
+
+# def _find_result_csv(run_dir: str | Path) -> Path:
+#     run_dir = Path(run_dir)
+#     csvs = sorted(run_dir.glob("result_*.csv"))
+#     if not csvs:
+#         raise FileNotFoundError(f"No result_*.csv found under: {run_dir}")
+#     if len(csvs) > 1:
+#         # Prefer the latest (by name timestamp) if multiple exist.
+#         return csvs[-1]
+#     return csvs[0]
+
+
+# def _load_task_success_rates(result_csv: str | Path, *, blank_as_zero: bool = True) -> dict[int, float]:
+#     import csv
+
+#     p = Path(result_csv)
+#     task_to_p: dict[int, float] = {}
+#     with p.open("r", encoding="utf-8") as f:
+#         reader = csv.DictReader(f)
+#         if not reader.fieldnames:
+#             raise ValueError(f"Empty CSV header: {p}")
+#         if "task_num" not in reader.fieldnames or "mean_success_rate" not in reader.fieldnames:
+#             raise ValueError(f"CSV missing required columns (task_num, mean_success_rate): {p}")
+#         for row in reader:
+#             task_name = (row.get("task") or "").strip()
+#             # Many result_*.csv include a trailing summary row like "========= Average =========".
+#             if task_name.startswith("=") or "average" in task_name.lower():
+#                 continue
+#             try:
+#                 tid = int(float(row["task_num"]))
+#                 succ_str = (row.get("mean_success_rate") or "").strip()
+#                 # Some runs may have num_complete_trials=0 and blank metrics.
+#                 if not succ_str:
+#                     if blank_as_zero:
+#                         succ = 0.0
+#                     else:
+#                         continue
+#                 else:
+#                     succ = float(succ_str)
+#             except Exception as e:
+#                 raise ValueError(f"Bad row in {p}: {row}") from e
+#             task_to_p[tid] = succ
+#     return task_to_p
+
+
+# def summarize_success(*run_dirs: str | Path, blank_as_zero: bool = True) -> float | dict[str, object]:
+#     """传入 1 个或多个 runs 目录，统计 116 个任务平均成功率与 pass@N。
+
+#     - 单路径：返回 116 个任务平均成功率（float）
+#     - 多路径：返回 dict，包含：
+#       - mean_success_rates: 每个运行目录的平均成功率（list[float]）
+#       - pass_at_n: 对每个任务按 1-Π(1-p_i) 聚合后的平均成功率（float）
+#     """
+#     if len(run_dirs) == 1 and isinstance(run_dirs[0], (list, tuple)):
+#         run_dirs = tuple(run_dirs[0])  # type: ignore[assignment]
+#     if not run_dirs:
+#         raise ValueError("Please provide at least one run_dir.")
+
+#     per_run_task_p: list[dict[int, float]] = []
+#     for d in run_dirs:
+#         csv_path = _find_result_csv(d)
+#         per_run_task_p.append(_load_task_success_rates(csv_path, blank_as_zero=blank_as_zero))
+
+#     # Per-run average success rate over tasks.
+#     mean_rates: list[float] = []
+#     for task_p in per_run_task_p:
+#         if not task_p:
+#             mean_rates.append(0.0)
+#             continue
+#         mean_rates.append(sum(task_p.values()) / len(task_p))
+
+#     if len(per_run_task_p) == 1:
+#         return mean_rates[0]
+
+#     # pass@N: per task, p_any = 1 - Π(1 - p_i), then average over tasks.
+#     all_task_ids = sorted({tid for m in per_run_task_p for tid in m.keys()})
+#     pass_any_sum = 0.0
+#     for tid in all_task_ids:
+#         prod_fail = 1.0
+#         for m in per_run_task_p:
+#             p = float(m.get(tid, 0.0))
+#             if p <= 0.0:
+#                 continue
+#             if p >= 1.0:
+#                 prod_fail = 0.0
+#                 break
+#             prod_fail *= (1.0 - p)
+#         pass_any_sum += (1.0 - prod_fail)
+#     pass_at_n = pass_any_sum / len(all_task_ids) if all_task_ids else 0.0
+
+#     return {"mean_success_rates": mean_rates, "pass_at_n": pass_at_n, "n_tasks": len(all_task_ids)}
+
+
+# avg = summarize_success("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try1")
+# stats = summarize_success("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try1", "/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try2", "/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try3")
+
+# print(avg)
+# print(stats)
