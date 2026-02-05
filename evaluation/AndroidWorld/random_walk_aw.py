@@ -417,8 +417,7 @@ def _main() -> None:
       # - Same task_name => same seed (instance_id fixed to 0).
       # - random.seed(seed) BEFORE generate_random_params()
       # - write seed into params BEFORE saving
-      # instance_id = 0
-      instance_id = random.randint(0, 1000000)
+      instance_id = 0
       seed = _derive_instance_seed(_TASK_RANDOM_SEED.value, task_name, instance_id)
       task_type.set_device_time(env)
       random.seed(seed)
@@ -476,7 +475,7 @@ def _main() -> None:
 
               # Sample an action/element
               weight_interactive = 10  # Weight for interactive elements
-              weight_addition = 1  # Weight for other actions
+              weight_addition = 3  # Weight for other actions
               action_element = random.choice(interactive_elements*weight_interactive+addition_actions*weight_addition)
               if "action_type" in action_element:   # If it's a direct action
                   action_sample = action_element
