@@ -171,59 +171,59 @@ if __name__ == '__main__':
     # else:
     #     exit(-1)
 
-    # client = OpenAI(
-    #     api_key="sk-msxoHjQv4oPTtngKR9VzDLQn4WQ1Ge9b5H12YHUF7aeosivs",
-    #     base_url="https://api.ppchat.vip/v1"
-    # )
-
-    # print("开始测试对话...")
-
-    # response = client.chat.completions.create(
-    #     model="gemini-3-pro-preview",
-    #     messages=[
-    #         {"role": "system", "content": "You are a helpful assistant."},
-    #         {
-    #             "role": "user",
-    #             "content": "Hi, who are you?"
-    #         }
-    #     ]
-    # )
-    # print(response.choices[0].message.content)
-
-
     client = OpenAI(
-        api_key="495e7f4ae82ddc5ccdb928b1bb686375",
-        base_url="https://dl.yunstorm.com/v1"
+        api_key="sk-msxoHjQv4oPTtngKR9VzDLQn4WQ1Ge9b5H12YHUF7aeosivs",
+        base_url="https://api.ppchat.vip/v1"
     )
 
     print("开始测试对话...")
 
     response = client.chat.completions.create(
-        model="qwen3-vl-235b-a22b-thinking",
+        model="gemini-3-pro-preview",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {
                 "role": "user",
                 "content": "Hi, who are you?"
             }
-        ],
-        stream=True,
+        ]
     )
+    print(response.choices[0].message.content)
 
-    print(response)
 
-    final_text = ""
-    for chunk in response:
-        if not getattr(chunk, "choices", None):
-            continue
-        if not chunk.choices:
-            continue
-        delta = getattr(chunk.choices[0], "delta", None)
-        if not delta:
-            continue
-        for k in ("content", "reasoning", "reasoning_content", "text"):
-            v = getattr(delta, k, None)
-            if v:
-                final_text += v
-                break
-    print(final_text)
+    # client = OpenAI(
+    #     api_key="495e7f4ae82ddc5ccdb928b1bb686375",
+    #     base_url="https://dl.yunstorm.com/v1"
+    # )
+
+    # print("开始测试对话...")
+
+    # response = client.chat.completions.create(
+    #     model="qwen3-vl-235b-a22b-thinking",
+    #     messages=[
+    #         {"role": "system", "content": "You are a helpful assistant."},
+    #         {
+    #             "role": "user",
+    #             "content": "Hi, who are you?"
+    #         }
+    #     ],
+    #     stream=True,
+    # )
+
+    # print(response)
+
+    # final_text = ""
+    # for chunk in response:
+    #     if not getattr(chunk, "choices", None):
+    #         continue
+    #     if not chunk.choices:
+    #         continue
+    #     delta = getattr(chunk.choices[0], "delta", None)
+    #     if not delta:
+    #         continue
+    #     for k in ("content", "reasoning", "reasoning_content", "text"):
+    #         v = getattr(delta, k, None)
+    #         if v:
+    #             final_text += v
+    #             break
+    # print(final_text)

@@ -20,6 +20,7 @@ import time
 
 import ast
 import json
+from typing import Any
 import numpy as np
 from PIL import Image
 from openai import OpenAI
@@ -1020,6 +1021,41 @@ def _parse_tool_call_json(block: str) -> dict[str, Any] | None:
         return None
 
 
+def _ui_element_to_metadata_dict(element: representation_utils.UIElement) -> dict[str, Any]:
+    """Convert UIElement to a JSON-serializable dict (keep bbox for post-processing/RL)."""
+    bbox = getattr(element, "bbox_pixels", None)
+    bbox_dict = (
+        {
+            "x_min": getattr(bbox, "x_min", None),
+            "x_max": getattr(bbox, "x_max", None),
+            "y_min": getattr(bbox, "y_min", None),
+            "y_max": getattr(bbox, "y_max", None),
+        }
+        if bbox is not None
+        else None
+    )
+    return {
+        "bbox_pixels": bbox_dict,
+        "resource_id": getattr(element, "resource_id", None),
+        "resource_name": getattr(element, "resource_name", None),
+        "text": getattr(element, "text", None),
+        "content_description": getattr(element, "content_description", None),
+        "class_name": getattr(element, "class_name", None),
+        "hint_text": getattr(element, "hint_text", None),
+        "package_name": getattr(element, "package_name", None),
+        "is_checkable": getattr(element, "is_checkable", None),
+        "is_enabled": getattr(element, "is_enabled", None),
+        "is_visible": getattr(element, "is_visible", None),
+        "is_clickable": getattr(element, "is_clickable", None),
+        "is_editable": getattr(element, "is_editable", None),
+        "is_focused": getattr(element, "is_focused", None),
+        "is_focusable": getattr(element, "is_focusable", None),
+        "is_long_clickable": getattr(element, "is_long_clickable", None),
+        "is_scrollable": getattr(element, "is_scrollable", None),
+        "is_selected": getattr(element, "is_selected", None),
+    }
+
+
 class Qwen3VL(base_agent.EnvironmentInteractingAgent):
     """Android GUI Agent based on Qwen3VL tool-call output (for AndroidWorld eval).
 
@@ -1064,6 +1100,9 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self.last_action: str | None = None
         self.repeat_time: int = 0
 
+        # Per-step ui_elements metadata aligned with screenshot_step{step}.png.
+        self._ui_elements_history: list[dict[str, Any]] = []
+
     def reset(self, go_home_on_reset: bool = False):
         super().reset(go_home_on_reset)
         self.env.hide_automation_ui()
@@ -1072,6 +1111,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self._recent_screenshots.clear()
         self.last_action = None
         self.repeat_time = 0
+        self._ui_elements_history = []
 
     @staticmethod
     def _to_base64_png(image: np.ndarray) -> str:
@@ -1099,6 +1139,22 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
 
         state = self.get_post_transition_state()
         screenshot = state.pixels.copy()  # RGB format from Android
+
+        # Save per-step ui_elements for post-processing (e.g., click_point -> bbox).
+        # We write metadata.json every step (overwrite) to avoid needing an explicit "episode end" hook.
+        if self.save_dir is not None:
+            try:
+                step_idx = self.turn_number - 1
+                self._ui_elements_history.append({
+                    "step": step_idx,
+                    "logical_screen_size": list(self.env.logical_screen_size),
+                    "ui_elements": [_ui_element_to_metadata_dict(e) for e in state.ui_elements],
+                })
+                meta = {"goal": instruction, "steps": self._ui_elements_history}
+                with open(os.path.join(self.save_dir, "metadata.json"), "w", encoding="utf-8") as f:
+                    json.dump(meta, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"Failed to save ui_elements metadata: {e}")
         
         # Save screenshot
         if self.save_dir is not None:

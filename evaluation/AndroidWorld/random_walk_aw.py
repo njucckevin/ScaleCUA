@@ -101,7 +101,7 @@ _DEVICE_GRPC_PORT = flags.DEFINE_integer(
 )
 
 _TASK_RANDOM_SEED = flags.DEFINE_integer(
-    "task_random_seed", 30, "Random seed for task randomness."
+    "task_random_seed", 42, "Random seed for task randomness."
 )
 
 _TASK = flags.DEFINE_string(
