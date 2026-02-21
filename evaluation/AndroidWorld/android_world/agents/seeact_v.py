@@ -1008,6 +1008,11 @@ def _extract_action_text_qwen3vl_gemini(block: str) -> str:
         return ""
     return m2.group(1).strip()
 
+def _extract_conclusion_text_qwen3vl_gemini(block: str) -> str:
+    """Extract the <conclusion>...</conclusion> content (for Gemini-style outputs)."""
+    m = re.search(r"<conclusion>\s*([\s\S]*?)\s*</conclusion>", block)
+    return m.group(1).strip() if m else ""
+
 
 def _parse_tool_call_json(block: str) -> dict[str, Any] | None:
     """Parse JSON inside <tool_call>...</tool_call>."""
@@ -1170,7 +1175,7 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
 
         # Use Gemini3Pro prompt format when model name contains "gemini".
         if "gemini" in (self.model_name or "").lower():
-            system_prompt = GEMINI3PRO_SYSTEM_PROMPT_AdditionalNotes
+            system_prompt = GEMINI3PRO_SYSTEM_PROMPT
             user_prompt = GEMINI3PRO_USER_PROMPT.format(
                 instruction=instruction, history=self.step_his
             )
@@ -1264,8 +1269,11 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
                 True, {"summary": "No <tool_call> JSON found in model output.", "response": response}
             )
 
-        if "gemini" in self.model_name:
-            op_text = _extract_action_text_qwen3vl_gemini(response)
+        if "gemini" in (self.model_name or "").lower():
+            conclusion_text = _extract_conclusion_text_qwen3vl_gemini(response)
+            thinking_text = _extract_action_text_qwen3vl_gemini(response)
+            # Align with Qwen2.5VL history logic: prefer conclusion, fallback to thinking.
+            op_text = conclusion_text if conclusion_text else thinking_text
         else:
             op_text = _extract_action_text_qwen3vl(response)
         self.step_his += f"Step {self.turn_number}: {op_text}; "
@@ -1484,7 +1492,7 @@ class Qwen25VL(base_agent.EnvironmentInteractingAgent):
                 messages=messages,
                 temperature=0,
             )
-            print(completion)
+            # print(completion)
             try:
                 response = completion.choices[0].message.content or ""
             except Exception:

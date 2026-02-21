@@ -24,6 +24,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from tqdm import tqdm
 
 
 # -----------------------------
@@ -115,8 +116,8 @@ def _scale_coord_0_1000_to_resized(
     if not coord or len(coord) != 2:
         return [0, 0]
     x, y = coord
-    xr = int(round(float(x) / 1000.0 * float(resized_w)))
-    yr = int(round(float(y) / 1000.0 * float(resized_h)))
+    xr = int(round(float(x) / 999.0 * float(resized_w)))
+    yr = int(round(float(y) / 999.0 * float(resized_h)))
     # clamp
     xr = max(0, min(resized_w - 1, xr)) if resized_w > 0 else 0
     yr = max(0, min(resized_h - 1, yr)) if resized_h > 0 else 0
@@ -169,6 +170,8 @@ class ConvertStats:
     total_steps: int = 0
     written: int = 0
     skipped: int = 0
+    invalid_filtered: int = 0
+    thinking_empty_filtered: int = 0
 
 
 def _load_image_size(path: Path) -> Tuple[int, int]:
@@ -209,6 +212,7 @@ def build_sharegpt_samples(
     limit: Optional[int] = None,
     absolute_images: bool = False,
     strict: bool = False,
+    refine: bool = False,
 ) -> tuple[List[Dict[str, Any]], ConvertStats]:
     # 确保能 import android_world（脚本放在 evaluation/AndroidWorld/ 时，这里会返回该目录）
     aw_root = _find_androidworld_root(Path(__file__).resolve().parent)
@@ -224,7 +228,15 @@ def build_sharegpt_samples(
     samples: List[Dict[str, Any]] = []
     stats = ConvertStats()
 
-    for ep in raw:
+    def _history_from_conclusions(traj_list: List[Dict[str, Any]], cur_idx: int) -> str:
+        parts: List[str] = []
+        for j in range(cur_idx):
+            c = str((traj_list[j] or {}).get("conclusion", "") or "")
+            c = "\""+c+"\"" if c else ""
+            parts.append(f"Step {j + 1}: {c}; ")
+        return "".join(parts)
+
+    for ep in tqdm(raw):
         save_dir = ep.get("save_dir", "")
         goal = ep.get("goal", "")
         traj = ep.get("trajectory", [])
@@ -257,10 +269,15 @@ def build_sharegpt_samples(
                     resolution=f"{resized_w}x{resized_h}"
                 )
 
-                # history: 用“上一步的 step_history”
-                history = ""
-                if i > 0:
-                    history = str(traj[i - 1].get("step_history", "") or "")
+                # history:
+                # - default: 用“上一步的 step_history”
+                # - refine: 用“之前所有步的 conclusion”拼接，模拟 Qwen25VL 的推理 history
+                if refine:
+                    history = _history_from_conclusions(traj, i)
+                else:
+                    history = ""
+                    if i > 0:
+                        history = str(traj[i - 1].get("step_history", "") or "")
                 user_prompt = QWEN25VL_USER_PROMPT.format(
                     instruction=goal, history=history
                 )
@@ -271,25 +288,56 @@ def build_sharegpt_samples(
 
                 # assistant: thinking + tool_call（并做坐标转换）
                 response = str(step.get("response", "") or "")
-                thinking, tool_call = _extract_thinking_and_tool_call(response)
+                thinking_raw, tool_call = _extract_thinking_and_tool_call(response)
+                if refine:
+                    thinking = str(step.get("thinking_pattern", "") or "")
+                    if not str(thinking).strip():
+                        stats.thinking_empty_filtered += 1
+                        continue
+                else:
+                    thinking = thinking_raw
+                    # thinking 为空：不写入训练样本，但仍保留在轨迹中用于后续 history 对齐
+                    if not str(thinking).strip():
+                        stats.thinking_empty_filtered += 1
+                        continue
                 tool_call_q25 = convert_tool_call_qwen3_to_qwen25(
                     tool_call, resized_w, resized_h
                 )
                 tool_call_json = json.dumps(tool_call_q25, ensure_ascii=False)
-                assistant_content = (
-                    "<thinking>\n"
-                    + thinking.strip()
-                    + "\n</thinking>\n"
-                    + "<tool_call>\n"
-                    + tool_call_json
-                    + "\n</tool_call>"
-                )
+                if refine:
+                    conclusion = str(step.get("conclusion", "") or "")
+                    assistant_content = (
+                        "<thinking>\n"
+                        + thinking.strip()
+                        + "\n</thinking>\n"
+                        + "<tool_call>\n"
+                        + tool_call_json
+                        + "\n</tool_call>\n"
+                        + "<conclusion>\n"
+                        + ("\"" + conclusion.strip() + "\"" if conclusion.strip() else "")
+                        + "\n</conclusion>"
+                    )
+                else:
+                    assistant_content = (
+                        "<thinking>\n"
+                        + thinking.strip()
+                        + "\n</thinking>\n"
+                        + "<tool_call>\n"
+                        + tool_call_json
+                        + "\n</tool_call>"
+                    )
 
                 step_idx = step.get("step", i)
                 sample_id = f"{save_dir}_step{step_idx}"
 
                 # images 字段：默认保持相对路径（与 input file 同目录时最方便）
                 images_field = [str(img_path) if absolute_images else img_rel]
+
+                # 过滤无效 step：不写入训练样本，但仍然让其“存在于轨迹里”，以保证后续 step 的 history 对齐不变
+                # （history 仍然来自 traj[i-1].step_history，其中可能包含 is_valid=false 的步骤）
+                if step.get("is_valid", True) is False:
+                    stats.invalid_filtered += 1
+                    continue
 
                 samples.append(
                     {
@@ -300,6 +348,7 @@ def build_sharegpt_samples(
                             {"role": "assistant", "content": assistant_content},
                         ],
                         "images": images_field,
+                        "bbox": step.get("bbox", []),
                     }
                 )
                 stats.written += 1
@@ -357,6 +406,11 @@ def main() -> None:
         action="store_true",
         help="fail fast on any bad record instead of skipping",
     )
+    p.add_argument(
+        "--refine",
+        action="store_true",
+        help="use refined fields (thinking_refine/conclusion) and conclusion-based history",
+    )
     args = p.parse_args()
 
     input_path: Path = args.input
@@ -371,6 +425,7 @@ def main() -> None:
         limit=args.limit,
         absolute_images=args.absolute_images,
         strict=args.strict,
+        refine=args.refine,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -384,7 +439,10 @@ def main() -> None:
         )
 
     print(
-        f"[OK] written={stats.written}, skipped={stats.skipped}, total_steps={stats.total_steps}\n"
+        f"[OK] written={stats.written}, skipped={stats.skipped}, "
+        f"invalid_filtered={stats.invalid_filtered}, "
+        f"thinking_empty_filtered={stats.thinking_empty_filtered}, "
+        f"total_steps={stats.total_steps}\n"
         f"     output={output_path}\n"
         f"     image_root={image_root}"
     )

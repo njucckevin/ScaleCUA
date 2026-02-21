@@ -249,5 +249,7 @@ evaluation/AndroidWorld/logs/
 
 # AndroidWorld local artifacts
 /evaluation/AndroidWorld/params.zip
-/evaluation/AndroidWorld/state_transfer_explore.json
+/evaluation/AndroidWorld/state_transfer_explore*.json
 /evaluation/AndroidWorld/synthesized_tasks_0123_v2_eval_final_taskid*.json
+/evaluation/AndroidWorld/state_transfer*
+/evaluation/AndroidWorld/synthesized_tasks*

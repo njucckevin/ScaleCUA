@@ -82,7 +82,7 @@ _ADB_PATH = flags.DEFINE_string(
 )
 _EMULATOR_SETUP = flags.DEFINE_boolean(
     'perform_emulator_setup',
-    False,
+    True,
     'Whether to perform emulator setup. This must be done once and only once'
     ' before running Android World. After an emulator is setup, this flag'
     ' should always be False.',
@@ -101,7 +101,7 @@ _DEVICE_GRPC_PORT = flags.DEFINE_integer(
 )
 
 _TASK_RANDOM_SEED = flags.DEFINE_integer(
-    "task_random_seed", 42, "Random seed for task randomness."
+    "task_random_seed", 123, "Random seed for task randomness."
 )
 
 _TASK = flags.DEFINE_string(
@@ -354,13 +354,13 @@ def _main() -> None:
   BASE_DIR = './explore_results'
   os.makedirs(BASE_DIR, exist_ok=True)
 
-  SCREEN_DIR = os.path.join(BASE_DIR, 'screenshots_0205')
+  SCREEN_DIR = os.path.join(BASE_DIR, 'screenshots_0219')
   os.makedirs(SCREEN_DIR, exist_ok=True)
 
-  TRAJECTORY_DIR = os.path.join(BASE_DIR, 'trajectories_0205')
+  TRAJECTORY_DIR = os.path.join(BASE_DIR, 'trajectories_0219')
   os.makedirs(TRAJECTORY_DIR, exist_ok=True)
 
-  PARAMS_DIR = os.path.join(BASE_DIR, 'params_0205')
+  PARAMS_DIR = os.path.join(BASE_DIR, 'params_0219')
   os.makedirs(PARAMS_DIR, exist_ok=True)
 
   # Launch Android emulator (ADB) and return to home screen

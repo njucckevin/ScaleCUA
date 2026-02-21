@@ -9,6 +9,7 @@ import re
 import os
 import sys
 import requests
+from tqdm import tqdm
 
 
 # data_test = [
@@ -98,75 +99,75 @@ import requests
 #     main()
 
 
-# # ---------------------------
-# # Explore results statistics
-# # ---------------------------
+# ---------------------------
+# Explore results statistics
+# ---------------------------
 
-# _EXPLORE_TRAJ_DIR = Path(__file__).resolve().parent / "explore_results" / "trajectories_0205"
-
-
-# def _summarize_explore_trajectories(traj_dir: Path = _EXPLORE_TRAJ_DIR) -> None:
-#     """统计 explore_results/trajectories 下的轨迹数量与 step 分布。
-
-#     - 轨迹条数：json 文件数量
-#     - step 数：每个 json 文件内 list 的长度
-#     - app 聚合：每个文件用第一个 step 的 "app" 字段归类（文件级别 app）
-#     """
-#     if not traj_dir.exists():
-#         print(f"[STATS] Trajectory dir not found: {traj_dir}")
-#         return
-
-#     traj_files = sorted(traj_dir.glob("*.json"))
-#     total_traj = len(traj_files)
-#     total_steps = 0
-#     steps_per_traj: list[int] = []
-#     steps_by_app: Counter[str] = Counter()
-#     bad_files: list[str] = []
-
-#     for p in traj_files:
-#         try:
-#             obj = json.loads(p.read_text(encoding="utf-8"))
-#         except Exception:
-#             bad_files.append(p.name)
-#             continue
-
-#         if not isinstance(obj, list):
-#             bad_files.append(p.name)
-#             continue
-
-#         n_steps = len(obj)
-#         steps_per_traj.append(n_steps)
-#         total_steps += n_steps
-
-#         app_name = "UNKNOWN"
-#         if n_steps > 0 and isinstance(obj[0], dict):
-#             app_name = str(obj[0].get("app", "UNKNOWN"))
-#         steps_by_app[app_name] += n_steps
-
-#     print(f"[STATS] Trajectory dir: {traj_dir}")
-#     print(f"[STATS] Trajectories: {total_traj}")
-#     print(f"[STATS] Total steps: {total_steps}")
-#     if steps_per_traj:
-#         print(
-#             "[STATS] Steps per trajectory: "
-#             f"min={min(steps_per_traj)} max={max(steps_per_traj)} avg={total_steps/len(steps_per_traj):.2f}"
-#         )
-
-#     print("[STATS] Steps by app:")
-#     for app, cnt in steps_by_app.most_common():
-#         print(f"  - {app}: {cnt}")
-
-#     if bad_files:
-#         print(f"[STATS] Bad/unreadable trajectory files: {len(bad_files)}")
-#         for name in bad_files[:20]:
-#             print(f"  - {name}")
-#         if len(bad_files) > 20:
-#             print("  - ...")
+_EXPLORE_TRAJ_DIR = Path(__file__).resolve().parent / "explore_results" / "trajectories_0219"
 
 
-# # 直接运行 temp.py 时打印统计（不需要 main 函数）
-# if __name__ == "__main__":
-#     _summarize_explore_trajectories()
+def _summarize_explore_trajectories(traj_dir: Path = _EXPLORE_TRAJ_DIR) -> None:
+    """统计 explore_results/trajectories 下的轨迹数量与 step 分布。
+
+    - 轨迹条数：json 文件数量
+    - step 数：每个 json 文件内 list 的长度
+    - app 聚合：每个文件用第一个 step 的 "app" 字段归类（文件级别 app）
+    """
+    if not traj_dir.exists():
+        print(f"[STATS] Trajectory dir not found: {traj_dir}")
+        return
+
+    traj_files = sorted(traj_dir.glob("*.json"))
+    total_traj = len(traj_files)
+    total_steps = 0
+    steps_per_traj: list[int] = []
+    steps_by_app: Counter[str] = Counter()
+    bad_files: list[str] = []
+
+    for p in tqdm(traj_files):
+        try:
+            obj = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            bad_files.append(p.name)
+            continue
+
+        if not isinstance(obj, list):
+            bad_files.append(p.name)
+            continue
+
+        n_steps = len(obj)
+        steps_per_traj.append(n_steps)
+        total_steps += n_steps
+
+        app_name = "UNKNOWN"
+        if n_steps > 0 and isinstance(obj[0], dict):
+            app_name = str(obj[0].get("app", "UNKNOWN"))
+        steps_by_app[app_name] += n_steps
+
+    print(f"[STATS] Trajectory dir: {traj_dir}")
+    print(f"[STATS] Trajectories: {total_traj}")
+    print(f"[STATS] Total steps: {total_steps}")
+    if steps_per_traj:
+        print(
+            "[STATS] Steps per trajectory: "
+            f"min={min(steps_per_traj)} max={max(steps_per_traj)} avg={total_steps/len(steps_per_traj):.2f}"
+        )
+
+    print("[STATS] Steps by app:")
+    for app, cnt in steps_by_app.most_common():
+        print(f"  - {app}: {cnt}")
+
+    if bad_files:
+        print(f"[STATS] Bad/unreadable trajectory files: {len(bad_files)}")
+        for name in bad_files[:20]:
+            print(f"  - {name}")
+        if len(bad_files) > 20:
+            print("  - ...")
+
+
+# 直接运行 temp.py 时打印统计（不需要 main 函数）
+if __name__ == "__main__":
+    _summarize_explore_trajectories()
 
 
 # def _test_openai_api_hello() -> None:
@@ -351,25 +352,25 @@ import requests
 #     main()
 
 
-import random
+# import random
 
-syn_data = json.load(open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_dedup.json", "r"))
-print(f"Num of total tasks: {len(syn_data)}")
-syn_data_wo_opentrack = [item for item in syn_data if "OpenTracks".lower() not in item["instruction"].lower()]
-syn_data_w_opentrack = [item for item in syn_data if "OpenTracks".lower() in item["instruction"].lower()]
-print(f"Num of tasks without OpenTracks: {len(syn_data_wo_opentrack)}")
-print(f"Num of tasks with OpenTracks: {len(syn_data_w_opentrack)}")
-random.shuffle(syn_data_wo_opentrack)
-random.shuffle(syn_data_w_opentrack)
+# syn_data = json.load(open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_dedup.json", "r"))
+# print(f"Num of total tasks: {len(syn_data)}")
+# syn_data_wo_opentrack = [item for item in syn_data if "OpenTracks".lower() not in item["instruction"].lower()]
+# syn_data_w_opentrack = [item for item in syn_data if "OpenTracks".lower() in item["instruction"].lower()]
+# print(f"Num of tasks without OpenTracks: {len(syn_data_wo_opentrack)}")
+# print(f"Num of tasks with OpenTracks: {len(syn_data_w_opentrack)}")
+# random.shuffle(syn_data_wo_opentrack)
+# random.shuffle(syn_data_w_opentrack)
 
-syn_data_1 = syn_data_wo_opentrack[:300]
-syn_data_2 = syn_data_wo_opentrack[300:600]
-syn_data_3 = syn_data_wo_opentrack[600:]
+# syn_data_1 = syn_data_wo_opentrack[:300]
+# syn_data_2 = syn_data_wo_opentrack[300:600]
+# syn_data_3 = syn_data_wo_opentrack[600:]
 
-json.dump(syn_data_1, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_split1.json", "w"), indent=4)
-json.dump(syn_data_2, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_split2.json", "w"), indent=4)
-json.dump(syn_data_3, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_split3.json", "w"), indent=4)
-json.dump(syn_data_w_opentrack, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_opentrack.json", "w"), indent=4)
+# json.dump(syn_data_1, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_split1.json", "w"), indent=4)
+# json.dump(syn_data_2, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_split2.json", "w"), indent=4)
+# json.dump(syn_data_3, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_split3.json", "w"), indent=4)
+# json.dump(syn_data_w_opentrack, open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_opentrack.json", "w"), indent=4)
 
 
 # # ---------------------------
@@ -468,8 +469,46 @@ json.dump(syn_data_w_opentrack, open("/Users/chengkanzhi/Desktop/ScaleCUA/evalua
 #     return {"mean_success_rates": mean_rates, "pass_at_n": pass_at_n, "n_tasks": len(all_task_ids)}
 
 
-# avg = summarize_success("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try1")
-# stats = summarize_success("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try1", "/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try2", "/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen3vl_ours_try3")
+# avg = summarize_success("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen25vl_ours_0208_thinking_pattern_rl_200_try4")
+# stats = summarize_success("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen25vl_ours_0208_thinking_pattern_rl_200_try4", "/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen25vl_ours_0208_thinking_pattern_rl_200_try2", "/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/qwen25vl_ours_0208_thinking_pattern_rl_200_try3")
 
 # print(avg)
 # print(stats)
+
+
+# # # ---------------------------
+# # # Temporary: prune run subdirs missing result.json (dry-run)
+# # # ---------------------------
+# #
+# # 用法：直接运行本文件即可（无需 main 函数）。
+# # 这次先只统计“将要删除”的目录数量与清单；真正删除的代码先注释掉，避免误删。
+# #
+# # 注意：请先确认 RUN_DIR 指向你想清理的 runs 目录。
+# from pathlib import Path
+# import shutil
+
+# RUN_DIR = Path("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/diy_0205_split1")
+
+# if not RUN_DIR.exists():
+#     raise FileNotFoundError(f"RUN_DIR 不存在：{RUN_DIR}")
+# if not RUN_DIR.is_dir():
+#     raise NotADirectoryError(f"RUN_DIR 不是目录：{RUN_DIR}")
+
+# subdirs = sorted([p for p in RUN_DIR.iterdir() if p.is_dir()])
+# missing_result = []
+# for d in subdirs:
+#     if not (d / "result.json").exists():
+#         missing_result.append(d)
+
+# print(f"[PRUNE][DRY-RUN] RUN_DIR: {RUN_DIR}")
+# print(f"[PRUNE][DRY-RUN] 子目录总数: {len(subdirs)}")
+# print(f"[PRUNE][DRY-RUN] 缺少 result.json 的目录数(将删除): {len(missing_result)}")
+# if missing_result:
+#     print("[PRUNE][DRY-RUN] 将删除的目录列表：")
+#     for d in missing_result:
+#         print(f"- {d}")
+
+#     # # 真正删除（本次先注释掉；确认无误后再取消注释）
+#     # for d in missing_result:
+#     #     shutil.rmtree(d)
+#     # print(f"[PRUNE] 已删除目录数: {len(missing_result)}")
