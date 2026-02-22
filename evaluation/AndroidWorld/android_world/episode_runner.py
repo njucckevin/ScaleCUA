@@ -103,6 +103,15 @@ def run_episode(
         }
         if "summary" in result.data and isinstance(result.data.get("summary"), str):
             entry["summary"] = result.data.get("summary")
+        for key in (
+            "policy_source",
+            "policy_tag",
+            "weak_action_correct",
+            "response_strong",
+            "response_weak",
+        ):
+            if key in result.data:
+                entry[key] = result.data.get(key)
         logger_data["trajectory"].append(entry)
         print("Completed step {:d}.".format(step_n + 1))
         assert constants.STEP_NUMBER not in result.data

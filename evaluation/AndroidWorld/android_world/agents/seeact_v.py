@@ -17,6 +17,7 @@ import os
 import re
 import io
 import time
+import random
 
 import ast
 import json
@@ -32,6 +33,7 @@ import time
 import numpy as np
 import requests
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from android_world.env import interface
 from android_world.env import json_action
 from android_world.agents import base_agent
@@ -1026,6 +1028,136 @@ def _parse_tool_call_json(block: str) -> dict[str, Any] | None:
         return None
 
 
+def _extract_thinking_text(block: str) -> str:
+    m = re.search(r"<thinking>\s*([\s\S]*?)\s*</thinking>", block or "", flags=re.I)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_conclusion_text(block: str) -> str:
+    m = re.search(r"<conclusion>\s*([\s\S]*?)\s*</conclusion>", block or "", flags=re.I)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_history_summary(block: str) -> str:
+    """Extract a compact summary string for step history across multiple output styles."""
+    conclusion = _extract_conclusion_text(block)
+    if conclusion:
+        return conclusion.replace("\n", " ")
+    thinking = _extract_thinking_text(block)
+    if thinking:
+        return thinking.replace("\n", " ")
+    action_line = _extract_action_text_qwen3vl(block)
+    if action_line:
+        return action_line
+    m = re.search(r"^\s*([\s\S]*?)(?=<tool_call>|$)", block or "")
+    return m.group(1).strip().replace("\n", " ") if m else ""
+
+
+def _scale_coord_resized_to_1000(coord: Any, resized_w: int, resized_h: int) -> list[int]:
+    if not isinstance(coord, (list, tuple)) or len(coord) != 2:
+        return [0, 0]
+    x = float(coord[0])
+    y = float(coord[1])
+    if resized_w <= 0 or resized_h <= 0:
+        return [0, 0]
+    xn = int(round(x / float(resized_w) * 1000.0))
+    yn = int(round(y / float(resized_h) * 1000.0))
+    xn = max(0, min(1000, xn))
+    yn = max(0, min(1000, yn))
+    return [xn, yn]
+
+
+def _convert_qwen25_tool_call_to_qwen3(
+    tool_call: dict[str, Any],
+    resized_w: int,
+    resized_h: int,
+) -> dict[str, Any]:
+    """Convert Qwen2.5VL resized-pixel coords to Qwen3-style 0~1000 coords for logging."""
+    if not isinstance(tool_call, dict):
+        return {"name": "mobile_use", "arguments": {"action": "wait"}}
+    args = tool_call.get("arguments", {}) if isinstance(tool_call.get("arguments"), dict) else {}
+    out_args = dict(args)
+    action = out_args.get("action")
+    if action in {"click", "left_click", "long_press", "swipe"}:
+        if "coordinate" in out_args:
+            out_args["coordinate"] = _scale_coord_resized_to_1000(
+                out_args.get("coordinate"),
+                resized_w,
+                resized_h,
+            )
+        if action == "swipe" and "coordinate2" in out_args:
+            out_args["coordinate2"] = _scale_coord_resized_to_1000(
+                out_args.get("coordinate2"),
+                resized_w,
+                resized_h,
+            )
+    return {
+        "name": tool_call.get("name", "mobile_use"),
+        "arguments": out_args,
+    }
+
+
+def _replace_tool_call_block(response: str, tool_call: dict[str, Any]) -> str:
+    tool_call_text = "<tool_call>\n" + json.dumps(tool_call, ensure_ascii=False) + "\n</tool_call>"
+    if re.search(r"<tool_call>\s*[\s\S]*?\s*</tool_call>", response or ""):
+        return re.sub(
+            r"<tool_call>\s*[\s\S]*?\s*</tool_call>",
+            tool_call_text,
+            response,
+            count=1,
+        )
+    base = (response or "").strip()
+    if base:
+        return base + "\n" + tool_call_text
+    return tool_call_text
+
+
+def _pick_min_area_bbox_for_point(
+    ui_elements: list[representation_utils.UIElement],
+    x: int,
+    y: int,
+) -> dict[str, int] | None:
+    best = None
+    best_area = None
+    for el in ui_elements or []:
+        bbox = getattr(el, "bbox_pixels", None)
+        if bbox is None:
+            continue
+        try:
+            x_min = int(getattr(bbox, "x_min"))
+            x_max = int(getattr(bbox, "x_max"))
+            y_min = int(getattr(bbox, "y_min"))
+            y_max = int(getattr(bbox, "y_max"))
+        except Exception:
+            continue
+        if x_max <= x_min or y_max <= y_min:
+            continue
+        if not (x_min <= x <= x_max and y_min <= y <= y_max):
+            continue
+        area = (x_max - x_min) * (y_max - y_min)
+        if best_area is None or area < best_area:
+            best_area = area
+            best = {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
+    return best
+
+
+def _point_in_bbox(x: int, y: int, bbox: dict[str, int]) -> bool:
+    return (
+        bbox["x_min"] <= x <= bbox["x_max"]
+        and bbox["y_min"] <= y <= bbox["y_max"]
+    )
+
+
+def _text_contains_either(a: str, b: str) -> bool:
+    aa = (a or "").strip().lower()
+    bb = (b or "").strip().lower()
+    if not aa and not bb:
+        return True
+    if not aa or not bb:
+        return False
+    return aa in bb or bb in aa
+
+
 def _ui_element_to_metadata_dict(element: representation_utils.UIElement) -> dict[str, Any]:
     """Convert UIElement to a JSON-serializable dict (keep bbox for post-processing/RL)."""
     bbox = getattr(element, "bbox_pixels", None)
@@ -1089,6 +1221,16 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             base_url=model_base_url,
             default_headers=extra_headers,
         )
+        # Weak model is intentionally hard-coded for mixed-policy synthesis.
+        self.weak_client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://10.210.9.11:32011/v1",
+        )
+        self.weak_model_name = "Qwen2.5-VL-7B-Instruct"
+        self.weak_min_pixels = 3136
+        self.weak_max_pixels = 12845056
+        self.weak_inject_prob = 0.5
+        self.max_weak_error_segments = 2
 
         # Used for self-deployed model (Not Used)
         self.model_base_url = model_base_url
@@ -1107,6 +1249,8 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
 
         # Per-step ui_elements metadata aligned with screenshot_step{step}.png.
         self._ui_elements_history: list[dict[str, Any]] = []
+        self._weak_error_segments: int = 0
+        self._weak_error_streak: int = 0
 
     def reset(self, go_home_on_reset: bool = False):
         super().reset(go_home_on_reset)
@@ -1117,6 +1261,8 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         self.last_action = None
         self.repeat_time = 0
         self._ui_elements_history = []
+        self._weak_error_segments = 0
+        self._weak_error_streak = 0
 
     @staticmethod
     def _to_base64_png(image: np.ndarray) -> str:
@@ -1138,6 +1284,102 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod.api_request
+
+    @staticmethod
+    def _chat_with_retry(
+        client: OpenAI,
+        model_name: str,
+        messages: list[dict[str, Any]],
+        retry_times: int = 5,
+        retry_sleep_s: float = 10.0,
+        retry_name: str = "model",
+    ) -> str:
+        response = ""
+        for _ in range(retry_times):
+            try:
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0,
+                )
+            except Exception as e:
+                print(f"{retry_name} request failed: {e}")
+                response = ""
+                time.sleep(retry_sleep_s)
+                continue
+            try:
+                response = completion.choices[0].message.content or ""
+            except Exception:
+                response = ""
+            if response.strip():
+                break
+            print(f"{retry_name} empty response, sleep {int(retry_sleep_s)} seconds and retry")
+            time.sleep(retry_sleep_s)
+        return response
+
+    @staticmethod
+    def _is_terminal_action(parsed: dict[str, Any]) -> bool:
+        return parsed.get("action_type") in {"answer", "status"}
+
+    def _judge_weak_action_correct(
+        self,
+        strong_parsed: dict[str, Any],
+        weak_parsed: dict[str, Any],
+        ui_elements: list[representation_utils.UIElement],
+    ) -> bool:
+        st = strong_parsed.get("action_type", "")
+        wt = weak_parsed.get("action_type", "")
+        if st in {"click", "long_press"}:
+            if wt not in {"click", "long_press"}:
+                return False
+            try:
+                sx = int(round(float(strong_parsed.get("x"))))
+                sy = int(round(float(strong_parsed.get("y"))))
+                wx = int(round(float(weak_parsed.get("x"))))
+                wy = int(round(float(weak_parsed.get("y"))))
+            except Exception:
+                return False
+            bbox = _pick_min_area_bbox_for_point(ui_elements, sx, sy)
+            if not bbox:
+                return False
+            return _point_in_bbox(wx, wy, bbox)
+
+        if st == "input_text":
+            if wt != "input_text":
+                return False
+            return _text_contains_either(
+                str(strong_parsed.get("text", "")),
+                str(weak_parsed.get("text", "")),
+            )
+
+        if st == "scroll":
+            return wt == "scroll" and str(strong_parsed.get("direction", "")).lower() == str(
+                weak_parsed.get("direction", "")
+            ).lower()
+
+        if st == "open_app":
+            if wt != "open_app":
+                return False
+            return _text_contains_either(
+                str(strong_parsed.get("app_name", "")),
+                str(weak_parsed.get("app_name", "")),
+            )
+
+        if st == "answer":
+            if wt != "answer":
+                return False
+            return _text_contains_either(
+                str(strong_parsed.get("text", "")),
+                str(weak_parsed.get("text", "")),
+            )
+
+        if st == "status":
+            return wt == "status" and str(strong_parsed.get("goal_status", "")) == str(
+                weak_parsed.get("goal_status", "")
+            )
+
+        # For deterministic non-coordinate actions (wait/back/home/enter), exact action_type match is enough.
+        return st == wt
 
     def step(self, instruction: str) -> base_agent.AgentInteractionResult:
         self.turn_number += 1
@@ -1172,8 +1414,14 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
         # No color conversion needed - PIL expects RGB, state.pixels provides RGB
         self._recent_screenshots.append(screenshot)
         height, width = screenshot.shape[:2]
+        resized_height, resized_width = smart_resize(
+            height,
+            width,
+            min_pixels=self.weak_min_pixels,
+            max_pixels=self.weak_max_pixels,
+        )
 
-        # Use Gemini3Pro prompt format when model name contains "gemini".
+        # Strong model prompt (configured by run_diy.py).
         if "gemini" in (self.model_name or "").lower():
             system_prompt = GEMINI3PRO_SYSTEM_PROMPT
             user_prompt = GEMINI3PRO_USER_PROMPT.format(
@@ -1190,14 +1438,24 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             )
         print(user_prompt)
 
-        # ---------------------------------------------------------------------
-        # Old (OpenAI chat.completions) call - kept for reference, but disabled.
-        # ---------------------------------------------------------------------
+        # Weak model prompt (hard-coded Qwen2.5VL endpoint/model).
+        weak_system_prompt = Qwen25VL_SYSTEM_PROMPT.format(
+            resolution=f"{resized_width}x{resized_height}"
+        )
+        weak_user_prompt = QWEN25VL_USER_PROMPT.format(
+            instruction=instruction,
+            history=self.step_his,
+        )
+
         user_content = [{"type": "text", "text": user_prompt}]
+        weak_user_content = [{"type": "text", "text": weak_user_prompt}]
         for img in list(self._recent_screenshots):
-            user_content.append(
-                {"type": "image_url", "image_url": {"url": self._to_base64_png(img)}}
-            )
+            img_payload = {
+                "type": "image_url",
+                "image_url": {"url": self._to_base64_png(img)},
+            }
+            user_content.append(img_payload)
+            weak_user_content.append(img_payload)
 
         messages = [
             {
@@ -1209,92 +1467,203 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
                 "content": user_content,
             },
         ]
-        response = ""
-        completion = None
-        for _ in range(5):
-            completion = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=0,
+        weak_messages = [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": weak_system_prompt}],
+            },
+            {
+                "role": "user",
+                "content": weak_user_content,
+            },
+        ]
+
+        # Parallel generation from strong + weak models.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            strong_future = executor.submit(
+                self._chat_with_retry,
+                self.client,
+                self.model_name,
+                messages,
+                5,
+                10.0,
+                "strong_model",
             )
-            # print(completion)
+            weak_future = executor.submit(
+                self._chat_with_retry,
+                self.weak_client,
+                self.weak_model_name,
+                weak_messages,
+                5,
+                10.0,
+                "weak_model",
+            )
+            strong_response = ""
+            weak_response_raw = ""
             try:
-                response = completion.choices[0].message.content or ""
-            except Exception:
-                response = ""
-            if response.strip():
-                break
-            print("sleep 10 seconds and retry")
-            time.sleep(10)
+                strong_response = strong_future.result()
+            except Exception as e:
+                print(f"strong_model future failed: {e}")
+            try:
+                weak_response_raw = weak_future.result()
+            except Exception as e:
+                # Weak model is optional for this policy; on failure we fallback to strong only.
+                print(f"weak_model future failed: {e}")
+                weak_response_raw = ""
 
-        # # ---------------------------------------------------------------------
-        # # New (our deployed /generate_stream) call - reuse test_api.api_request().
-        # # ---------------------------------------------------------------------
-        # # test_api.py 的 api_request 期待 image_url 是字符串（file:// 或 http(s)://），
-        # # 所以这里将截图写入临时 PNG 文件，并传 file://{path}
-        # import tempfile
-        # from PIL import Image as PILImage
-
-        # with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        #     tmp_path = f.name
-        # PILImage.fromarray(screenshot).save(tmp_path, format="PNG")
-
-        # messages = [
-        #     {"role": "system", "content": system_prompt},
-        #     {
-        #         "role": "user",
-        #         "content": [
-        #             {"type": "text", "text": user_prompt},
-        #             {"type": "image_url", "image_url": f"file://{tmp_path}"},
-        #         ],
-        #     },
-        # ]
-        # response = (
-        #     self._api_request(
-        #         self.model_base_url,
-        #         messages=messages,
-        #         stream=True,
-        #         max_new_tokens=4096,
-        #         timeout_stream=180,
-        #     )
-        #     or ""
-        # )
-
-        print(response)
+        print("[strong_response]")
+        print(strong_response)
+        print("[weak_response]")
+        print(weak_response_raw)
         print("=" * 50)
 
+        # Keep original variable names for the strong-policy base path.
+        response = strong_response
         tool_call = _parse_tool_call_json(response)
         if not tool_call:
             return base_agent.AgentInteractionResult(
-                True, {"summary": "No <tool_call> JSON found in model output.", "response": response}
+                True,
+                {
+                    "summary": "No <tool_call> JSON found in strong model output.",
+                    "response": response,
+                },
             )
 
-        if "gemini" in (self.model_name or "").lower():
-            conclusion_text = _extract_conclusion_text_qwen3vl_gemini(response)
-            thinking_text = _extract_action_text_qwen3vl_gemini(response)
-            # Align with Qwen2.5VL history logic: prefer conclusion, fallback to thinking.
-            op_text = conclusion_text if conclusion_text else thinking_text
-        else:
-            op_text = _extract_action_text_qwen3vl(response)
-        self.step_his += f"Step {self.turn_number}: {op_text}; "
-
-        # Compatible: tool_call may look like {"name":"mobile_use","arguments":{...}}
-        args = tool_call.get("arguments", {}) if isinstance(tool_call, dict) else {}
+        args = (
+            tool_call.get("arguments", {})
+            if isinstance(tool_call, dict)
+            else {}
+        )
         action_name = args.get("action", "")
         try:
-            parsed = qwen3vl_action_transform(action_name, args, width, height)
-            print(parsed)
+            parsed = qwen3vl_action_transform(
+                action_name,
+                args,
+                width,
+                height,
+            )
+            print({"parsed": parsed})
         except Exception as e:
             return base_agent.AgentInteractionResult(
                 True,
                 {
-                    "summary": f"Failed to transform tool-call into action: {e}",
+                    "summary": f"Failed to transform strong tool-call into action: {e}",
                     "response": response,
                     "tool_call": tool_call,
                 },
             )
 
-        # If model outputs an answer, persist it and stop immediately.
+        weak_tool_call = _parse_tool_call_json(weak_response_raw)
+        weak_parsed = None
+        weak_response_normalized = weak_response_raw
+        weak_args_qwen3 = {}
+        if weak_tool_call:
+            weak_args = (
+                weak_tool_call.get("arguments", {})
+                if isinstance(weak_tool_call, dict)
+                else {}
+            )
+            weak_action_name = weak_args.get("action", "")
+            try:
+                weak_parsed = qwen25vl_action_transform(
+                    weak_action_name,
+                    weak_args,
+                    width,
+                    height,
+                    resized_width,
+                    resized_height,
+                )
+                weak_tool_call_qwen3 = _convert_qwen25_tool_call_to_qwen3(
+                    weak_tool_call,
+                    resized_width,
+                    resized_height,
+                )
+                weak_response_normalized = _replace_tool_call_block(
+                    weak_response_raw,
+                    weak_tool_call_qwen3,
+                )
+                weak_args_qwen3 = (
+                    weak_tool_call_qwen3.get("arguments", {})
+                    if isinstance(weak_tool_call_qwen3, dict)
+                    else {}
+                )
+                print({"weak_parsed": weak_parsed})
+            except Exception as e:
+                print(f"Failed to transform weak tool-call into action: {e}")
+                weak_parsed = None
+        else:
+            print("No <tool_call> JSON found in weak model output.")
+
+        # Default policy: execute strong model action.
+        policy_source = "strong"
+        policy_tag = "strong_default"
+        weak_action_correct: bool | None = None
+        save_mismatch_raw = False
+
+        if weak_parsed is None:
+            policy_tag = "strong_weak_unavailable"
+            self._weak_error_streak = 0
+        elif self._is_terminal_action(weak_parsed):
+            # Never allow weak model to output answer/terminate actions.
+            policy_tag = "strong_weak_terminal_blocked"
+            weak_action_correct = False
+            self._weak_error_streak = 0
+            save_mismatch_raw = True
+        else:
+            weak_action_correct = self._judge_weak_action_correct(
+                parsed,
+                weak_parsed,
+                state.ui_elements,
+            )
+            if weak_action_correct:
+                policy_tag = "strong_weak_correct"
+                self._weak_error_streak = 0
+            else:
+                save_mismatch_raw = True
+                can_start_new_segment = not (
+                    self._weak_error_segments >= self.max_weak_error_segments
+                    and self._weak_error_streak == 0
+                )
+                choose_weak = can_start_new_segment and (
+                    random.random() < self.weak_inject_prob
+                )
+                if choose_weak:
+                    if self._weak_error_streak == 0:
+                        self._weak_error_segments += 1
+                    self._weak_error_streak += 1
+                    policy_source = "weak"
+                    policy_tag = "weak_error_injected"
+                    # Replace original vars so the rest of the code path stays unchanged.
+                    response = weak_response_normalized
+                    parsed = weak_parsed
+                    args = weak_args_qwen3
+                else:
+                    if (
+                        self._weak_error_segments >= self.max_weak_error_segments
+                        and self._weak_error_streak == 0
+                    ):
+                        policy_tag = "strong_after_two_error_segments"
+                    else:
+                        policy_tag = "strong_skip_weak_error"
+                    self._weak_error_streak = 0
+
+        mismatch_raw_responses: dict[str, str] = {}
+        if save_mismatch_raw:
+            mismatch_raw_responses = {
+                "response_strong": strong_response,
+                "response_weak": weak_response_raw,
+            }
+
+        # Log which policy action is actually executed in this step.
+        print(
+            f"[MixedPolicy] execute={policy_source.upper()} tag={policy_tag} "
+            f"weak_action_correct={weak_action_correct}"
+        )
+
+        op_text = _extract_history_summary(response)
+        self.step_his += f"Step {self.turn_number}: {op_text}; "
+
+        # If current action is answer, persist it and stop immediately.
         if parsed.get("action_type") == "answer":
             try:
                 act = json_action.JSONAction(**parsed)
@@ -1302,11 +1671,19 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             except Exception:
                 print("Failed to execute answer action:", parsed)
             return base_agent.AgentInteractionResult(
-                True, {"response": response, "step_history": self.step_his, "parsed": parsed}
+                True,
+                {
+                    "response": response,
+                    "step_history": self.step_his,
+                    "parsed": parsed,
+                    "policy_source": policy_source,
+                    "policy_tag": policy_tag,
+                    "weak_action_correct": weak_action_correct,
+                    **mismatch_raw_responses,
+                },
             )
 
-        # Record last_action + repeat_time (previous code had these fields but not working)
-        # Here, use the tool-call's arguments as the "action signature", which is more robust than checking 'terminate' in a string.
+        # Repeat-action detector (uses executed action signature).
         try:
             action_sig = json.dumps(args, ensure_ascii=False, sort_keys=True)
         except Exception:
@@ -1322,12 +1699,20 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
             self.env.execute_action(act)
             time.sleep(self.wait_after_action_seconds)
         except Exception:
-            # continue
             print("Failed to execute action:", parsed)
 
         if parsed.get("action_type") == "status":
             return base_agent.AgentInteractionResult(
-                True, {"response": response, "step_history": self.step_his, "parsed": parsed}
+                True,
+                {
+                    "response": response,
+                    "step_history": self.step_his,
+                    "parsed": parsed,
+                    "policy_source": policy_source,
+                    "policy_tag": policy_tag,
+                    "weak_action_correct": weak_action_correct,
+                    **mismatch_raw_responses,
+                },
             )
 
         # If repeated actions reach the threshold: terminate immediately to avoid deadlock in evaluation
@@ -1340,11 +1725,24 @@ class Qwen3VL(base_agent.EnvironmentInteractingAgent):
                     "step_history": self.step_his,
                     "parsed": parsed,
                     "repeat_time": self.repeat_time,
+                    "policy_source": policy_source,
+                    "policy_tag": policy_tag,
+                    "weak_action_correct": weak_action_correct,
+                    **mismatch_raw_responses,
                 },
             )
 
         return base_agent.AgentInteractionResult(
-            False, {"response": response, "step_history": self.step_his, "parsed": parsed}
+            False,
+            {
+                "response": response,
+                "step_history": self.step_his,
+                "parsed": parsed,
+                "policy_source": policy_source,
+                "policy_tag": policy_tag,
+                "weak_action_correct": weak_action_correct,
+                **mismatch_raw_responses,
+            },
         )
 
 def _extract_thinking_qwen25vl(response: str) -> str:
