@@ -145,8 +145,8 @@ if __name__ == '__main__':
     content = data["choices"][0]["message"]["content"]
     print(f'received output: {content}')
 
-    # url = f'http://10.210.6.10:20903/generate_stream'
-    # print(f'api test: url={url}')
+    url = f'http://10.210.6.10:20903/generate_stream'
+    print(f'api test: url={url}')
 
     # time_interval = 30
     # max_retry = 20

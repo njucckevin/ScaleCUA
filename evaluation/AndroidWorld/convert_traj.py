@@ -172,6 +172,7 @@ class ConvertStats:
     skipped: int = 0
     invalid_filtered: int = 0
     thinking_empty_filtered: int = 0
+    policy_filtered: int = 0
 
 
 def _load_image_size(path: Path) -> Tuple[int, int]:
@@ -213,13 +214,19 @@ def build_sharegpt_samples(
     absolute_images: bool = False,
     strict: bool = False,
     refine: bool = False,
+    model_format: str = "qwen25vl",
 ) -> tuple[List[Dict[str, Any]], ConvertStats]:
     # 确保能 import android_world（脚本放在 evaluation/AndroidWorld/ 时，这里会返回该目录）
     aw_root = _find_androidworld_root(Path(__file__).resolve().parent)
     if str(aw_root) not in sys.path:
         sys.path.insert(0, str(aw_root))
 
-    from android_world.agents.PROMPT import Qwen25VL_SYSTEM_PROMPT, QWEN25VL_USER_PROMPT
+    from android_world.agents.PROMPT import (
+        Qwen25VL_SYSTEM_PROMPT,
+        QWEN25VL_USER_PROMPT,
+        QWEN3VL_SYSTEM_PROMPT,
+        QWEN3VL_USER_PROMPT,
+    )
 
     raw = json.loads(input_path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
@@ -228,11 +235,14 @@ def build_sharegpt_samples(
     samples: List[Dict[str, Any]] = []
     stats = ConvertStats()
 
-    def _history_from_conclusions(traj_list: List[Dict[str, Any]], cur_idx: int) -> str:
+    def _history_from_conclusions(
+        traj_list: List[Dict[str, Any]], cur_idx: int, quote_conclusion: bool
+    ) -> str:
         parts: List[str] = []
         for j in range(cur_idx):
             c = str((traj_list[j] or {}).get("conclusion", "") or "")
-            c = "\""+c+"\"" if c else ""
+            if c and quote_conclusion:
+                c = "\"" + c + "\""
             parts.append(f"Step {j + 1}: {c}; ")
         return "".join(parts)
 
@@ -260,25 +270,34 @@ def build_sharegpt_samples(
                 if not img_path.exists():
                     raise FileNotFoundError(f"image not found: {img_path}")
 
-                # system prompt: resolution 来自 smart_resize(width,height) 的 resized_w x resized_h
-                w, h = _load_image_size(img_path)
-                resized_h, resized_w = smart_resize(
-                    h, w, min_pixels=min_pixels, max_pixels=max_pixels
-                )
-                system_prompt = Qwen25VL_SYSTEM_PROMPT.format(
-                    resolution=f"{resized_w}x{resized_h}"
-                )
+                if model_format == "qwen25vl":
+                    # system prompt: resolution 来自 smart_resize(width,height) 的 resized_w x resized_h
+                    w, h = _load_image_size(img_path)
+                    resized_h, resized_w = smart_resize(
+                        h, w, min_pixels=min_pixels, max_pixels=max_pixels
+                    )
+                    system_prompt = Qwen25VL_SYSTEM_PROMPT.format(
+                        resolution=f"{resized_w}x{resized_h}"
+                    )
+                    user_prompt_template = QWEN25VL_USER_PROMPT
+                else:
+                    system_prompt = QWEN3VL_SYSTEM_PROMPT
+                    user_prompt_template = QWEN3VL_USER_PROMPT
 
                 # history:
                 # - default: 用“上一步的 step_history”
                 # - refine: 用“之前所有步的 conclusion”拼接，模拟 Qwen25VL 的推理 history
                 if refine:
-                    history = _history_from_conclusions(traj, i)
+                    history = _history_from_conclusions(
+                        traj,
+                        i,
+                        quote_conclusion=(model_format != "qwen3vl"),
+                    )
                 else:
                     history = ""
                     if i > 0:
                         history = str(traj[i - 1].get("step_history", "") or "")
-                user_prompt = QWEN25VL_USER_PROMPT.format(
+                user_prompt = user_prompt_template.format(
                     instruction=goal, history=history
                 )
 
@@ -286,11 +305,11 @@ def build_sharegpt_samples(
                 # 对齐 seeact_v.py 的 message content 顺序：先 text，后 image
                 user_content = user_prompt + "<image>"
 
-                # assistant: thinking + tool_call（并做坐标转换）
+                # assistant: thinking + tool_call（按 model_format 控制输出模板与坐标转换）
                 response = str(step.get("response", "") or "")
                 thinking_raw, tool_call = _extract_thinking_and_tool_call(response)
                 if refine:
-                    thinking = str(step.get("thinking_pattern", "") or "")
+                    thinking = str(step.get("thinking_refine", "") or "")
                     if not str(thinking).strip():
                         stats.thinking_empty_filtered += 1
                         continue
@@ -300,12 +319,26 @@ def build_sharegpt_samples(
                     if not str(thinking).strip():
                         stats.thinking_empty_filtered += 1
                         continue
-                tool_call_q25 = convert_tool_call_qwen3_to_qwen25(
-                    tool_call, resized_w, resized_h
-                )
-                tool_call_json = json.dumps(tool_call_q25, ensure_ascii=False)
-                if refine:
-                    conclusion = str(step.get("conclusion", "") or "")
+                if model_format == "qwen25vl":
+                    tool_call_out = convert_tool_call_qwen3_to_qwen25(
+                        tool_call, resized_w, resized_h
+                    )
+                else:
+                    tool_call_out = tool_call
+                tool_call_json = json.dumps(tool_call_out, ensure_ascii=False)
+
+                conclusion = str(step.get("conclusion", "") or "")
+                if model_format == "qwen3vl":
+                    assistant_content = (
+                        "Thought: "
+                        + thinking.strip()
+                        + "\nAction: "
+                        + json.dumps(conclusion.strip(), ensure_ascii=False)
+                        + "\n<tool_call>\n"
+                        + tool_call_json
+                        + "\n</tool_call>"
+                    )
+                elif refine:
                     assistant_content = (
                         "<thinking>\n"
                         + thinking.strip()
@@ -337,6 +370,12 @@ def build_sharegpt_samples(
                 # （history 仍然来自 traj[i-1].step_history，其中可能包含 is_valid=false 的步骤）
                 if step.get("is_valid", True) is False:
                     stats.invalid_filtered += 1
+                    continue
+
+                # Mixed-policy 数据：若该 step 带 policy_tag，则仅保留 strong 作为训练样本。
+                # 注意：这里仅过滤“写样本”，不会改变上面 history 的构造（history 仍基于完整轨迹）。
+                if "policy_tag" in step and step.get("policy_source") != "strong":
+                    stats.policy_filtered += 1
                     continue
 
                 samples.append(
@@ -411,6 +450,13 @@ def main() -> None:
         action="store_true",
         help="use refined fields (thinking_refine/conclusion) and conclusion-based history",
     )
+    p.add_argument(
+        "--model-format",
+        type=str,
+        default="qwen25vl",
+        choices=["qwen25vl", "qwen3vl"],
+        help="target model format (qwen25vl or qwen3vl). default: qwen25vl",
+    )
     args = p.parse_args()
 
     input_path: Path = args.input
@@ -426,6 +472,7 @@ def main() -> None:
         absolute_images=args.absolute_images,
         strict=args.strict,
         refine=args.refine,
+        model_format=args.model_format,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -442,6 +489,7 @@ def main() -> None:
         f"[OK] written={stats.written}, skipped={stats.skipped}, "
         f"invalid_filtered={stats.invalid_filtered}, "
         f"thinking_empty_filtered={stats.thinking_empty_filtered}, "
+        f"policy_filtered={stats.policy_filtered}, "
         f"total_steps={stats.total_steps}\n"
         f"     output={output_path}\n"
         f"     image_root={image_root}"

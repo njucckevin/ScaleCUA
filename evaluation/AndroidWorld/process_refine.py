@@ -26,8 +26,9 @@ Task:
 - You will receive one Android GUI step with:
   1) user instruction (overall goal),
   2) step history text,
-  3) the model response (include thinking) for the current step,
+  3) the model response (maybe include thinking and conclusion) for the current step,
   4) current screenshot (possibly with a red marker if the step is click/long_press).
+- Your task is to write or rewrite a concise conclusion of the action executed in the current step.
 
 Output rule:
 - The conclusion should summarize this step operation.
@@ -37,7 +38,7 @@ Output rule:
 - If the thinking contains task-instruction-related information that should be remembered for later steps, include it in the conclusion.
 - The conclusion should summarize the intended action and immediate progress/result for this step.
 - Keep it factual and grounded in the provided text + screenshot.
-- No quotes, no tags, no prefix, no extra lines.
+- Output plain conclusion text only (no <conclusion> tags, no quotes, no extra wrappers)
 
 Examples:
 1) I opened the Audio Recorder app from the app drawer.
@@ -54,6 +55,7 @@ Task:
   4) current screenshot (possibly with a red marker if the step is click/long_press).
 - In previous data, the model response may miss <thinking> entirely or contain overly brief thinking.
 - Your task is to synthesize from instruction, history, response, and screenshot, and reconstruct a detailed, in-depth thinking with clear reasoning.
+- Note that previous steps may contain mistakes; if correction is needed, analyze it carefully in the thinking.
 
 Output rule:
 - Write a refined, in-depth thinking paragraph for this step.
@@ -268,6 +270,9 @@ def _gen_text(
     else:
         system_prompt = EVAL_SYSTEM_PROMPT
     user_text = _build_user_text(instruction, step_history, response, mode=mode)
+
+    # 如果response本身包含<conclusion>，删除这部分
+
     completion = client.chat.completions.create(
         model=model,
         messages=[

@@ -476,16 +476,60 @@ from tqdm import tqdm
 # print(stats)
 
 
-# # ---------------------------
-# # Temporary: prune run subdirs missing result.json (dry-run)
-# # ---------------------------
+# # # ---------------------------
+# # # Temporary: prune run subdirs missing result.json (dry-run)
+# # # ---------------------------
+# #
+# # 用法：直接运行本文件即可（无需 main 函数）。
+# # 这次先只统计“将要删除”的目录数量与清单；真正删除的代码先注释掉，避免误删。
+# #
+# # 注意：请先确认 RUN_DIR 指向你想清理的 runs 目录。
+# from pathlib import Path
+# import shutil
+# import json
+
+# RUN_DIR = Path("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/diy_0219_split1")
+
+# if not RUN_DIR.exists():
+#     raise FileNotFoundError(f"RUN_DIR 不存在：{RUN_DIR}")
+# if not RUN_DIR.is_dir():
+#     raise NotADirectoryError(f"RUN_DIR 不是目录：{RUN_DIR}")
+
+# subdirs = sorted([p for p in RUN_DIR.iterdir() if p.is_dir()])
+# missing_result = []
+# for d in subdirs:
+#     if not (d / "result.json").exists():
+#         missing_result.append(d)
+
+# print(f"[PRUNE][DRY-RUN] RUN_DIR: {RUN_DIR}")
+# print(f"[PRUNE][DRY-RUN] 子目录总数: {len(subdirs)}")
+# print(f"[PRUNE][DRY-RUN] 缺少 result.json 的目录数(将删除): {len(missing_result)}")
+# if missing_result:
+#     print("[PRUNE][DRY-RUN] 将删除的目录列表：")
+#     for d in missing_result:
+#         print(f"- {d}")
+
+#     # # 真正删除（本次先注释掉；确认无误后再取消注释）
+#     # for d in missing_result:
+#     #     shutil.rmtree(d)
+#     # print(f"[PRUNE] 已删除目录数: {len(missing_result)}")
+
+
+# ---------------------------
+# Temporary: prune run subdirs with only 1-step trajectory (dry-run)
+# ---------------------------
 #
 # 用法：直接运行本文件即可（无需 main 函数）。
 # 这次先只统计“将要删除”的目录数量与清单；真正删除的代码先注释掉，避免误删。
 #
-# 注意：请先确认 RUN_DIR 指向你想清理的 runs 目录。
+# 判定规则：
+# - 子目录下存在 result.json
+# - result.json 可解析
+# - trajectory 字段是 list 且长度为 1
+
 from pathlib import Path
 import shutil
+import json
 
 RUN_DIR = Path("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/runs/diy_0219_split1")
 
@@ -495,20 +539,38 @@ if not RUN_DIR.is_dir():
     raise NotADirectoryError(f"RUN_DIR 不是目录：{RUN_DIR}")
 
 subdirs = sorted([p for p in RUN_DIR.iterdir() if p.is_dir()])
-missing_result = []
-for d in subdirs:
-    if not (d / "result.json").exists():
-        missing_result.append(d)
 
-print(f"[PRUNE][DRY-RUN] RUN_DIR: {RUN_DIR}")
-print(f"[PRUNE][DRY-RUN] 子目录总数: {len(subdirs)}")
-print(f"[PRUNE][DRY-RUN] 缺少 result.json 的目录数(将删除): {len(missing_result)}")
-if missing_result:
-    print("[PRUNE][DRY-RUN] 将删除的目录列表：")
-    for d in missing_result:
+one_step_dirs = []
+invalid_result_json = []
+missing_result_for_step_check = []
+
+for d in subdirs:
+    result_file = d / "result.json"
+    if not result_file.exists():
+        missing_result_for_step_check.append(d)
+        continue
+
+    try:
+        data = json.loads(result_file.read_text(encoding="utf-8"))
+    except Exception:
+        invalid_result_json.append(d)
+        continue
+
+    traj = data.get("trajectory")
+    if isinstance(traj, list) and len(traj) == 1:
+        one_step_dirs.append(d)
+
+print(f"[STEP1][DRY-RUN] RUN_DIR: {RUN_DIR}")
+print(f"[STEP1][DRY-RUN] 子目录总数: {len(subdirs)}")
+print(f"[STEP1][DRY-RUN] 缺少 result.json 的目录数(跳过): {len(missing_result_for_step_check)}")
+print(f"[STEP1][DRY-RUN] result.json 解析失败目录数(跳过): {len(invalid_result_json)}")
+print(f"[STEP1][DRY-RUN] 仅 1 step 的目录数(将删除): {len(one_step_dirs)}")
+if one_step_dirs:
+    print("[STEP1][DRY-RUN] 将删除的目录列表：")
+    for d in one_step_dirs:
         print(f"- {d}")
 
-    # # 真正删除（本次先注释掉；确认无误后再取消注释）
-    # for d in missing_result:
-    #     shutil.rmtree(d)
-    # print(f"[PRUNE] 已删除目录数: {len(missing_result)}")
+    # 真正删除（本次先注释掉；确认无误后再取消注释）
+    for d in one_step_dirs:
+        shutil.rmtree(d)
+    print(f"[STEP1] 已删除目录数: {len(one_step_dirs)}")

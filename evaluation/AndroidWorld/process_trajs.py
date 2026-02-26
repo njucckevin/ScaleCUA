@@ -285,7 +285,7 @@ def main():
     print(f"with_result_json: {has_result}")
     print(f"agent_success(terminate_success_or_answer): {terminate_success}")
 
-    out_path = runs_dir / "data_merge_0208_refine.json"
+    out_path = runs_dir / "data_merge_0224_refine.json"
     out_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"saved: {out_path} (items={len(merged)})")
 
@@ -304,7 +304,7 @@ def main():
     print(f"invalid_steps: {invalid_steps}")
 
     # 统计每个app的轨迹数量
-    data_meta = json.load(open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0205_final_dedup.json", "r"))
+    data_meta = json.load(open("/Users/chengkanzhi/Desktop/ScaleCUA/evaluation/AndroidWorld/synthesized_tasks_0219_final.json", "r"))
     dir_2_app = {}
     for item in data_meta:
         app_name = item["app"]
@@ -320,6 +320,26 @@ def main():
     print("Num per app:")
     for app, num in app_2_num.items():
         print(f"{app}: {num}")
+
+    # 统计weak/strong模型步数
+    weak_steps = 0
+    strong_steps = 0
+    unknown_policy_steps = 0
+    for item in merged:
+        for step in item.get("trajectory", []):
+            src = step.get("policy_source")
+            if src == "weak":
+                weak_steps += 1
+            elif src == "strong":
+                strong_steps += 1
+            else:
+                unknown_policy_steps += 1
+
+    print(f"weak_steps: {weak_steps}")
+    print(f"strong_steps: {strong_steps}")
+    if unknown_policy_steps:
+        print(f"unknown_policy_steps: {unknown_policy_steps}")
+    
 
 if __name__ == "__main__":
     main()

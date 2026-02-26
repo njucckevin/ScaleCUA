@@ -45,7 +45,7 @@ SLEEP_BETWEEN_RUNS_SECONDS=60
 # -------------------------
 # Run 1
 # -------------------------
-run_one "runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try1" \
+run_one "runs/qwen25vl_ours_0126_0208_0224_try1" \
   --agent_name qwen25vl \
   --console_port 5554 \
   --grpc_port 8554 \
@@ -53,7 +53,7 @@ run_one "runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try1" \
   --qwen3vl_model_base_url http://10.210.9.11:32011/v1 \
   --qwen3vl_model_name Qwen2.5-VL-7B-Instruct \
   --qwen3vl_model_api_key EMPTY \
-  --checkpoint_dir runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try1 \
+  --checkpoint_dir runs/qwen25vl_ours_0126_0208_0224_try1 \
   --task_random_seed 30
 
 # -------------------------
@@ -65,7 +65,7 @@ sleep "${SLEEP_BETWEEN_RUNS_SECONDS}"
 # -------------------------
 # Run 2 (starts only after Run 1 ends)
 # -------------------------
-run_one "runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try2" \
+run_one "runs/qwen25vl_ours_0126_0208_0224_try2" \
   --agent_name qwen25vl \
   --console_port 5554 \
   --grpc_port 8554 \
@@ -73,7 +73,7 @@ run_one "runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try2" \
   --qwen3vl_model_base_url http://10.210.9.11:32011/v1 \
   --qwen3vl_model_name Qwen2.5-VL-7B-Instruct \
   --qwen3vl_model_api_key EMPTY \
-  --checkpoint_dir runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try2 \
+  --checkpoint_dir runs/qwen25vl_ours_0126_0208_0224_try2 \
   --task_random_seed 40
 
 # -------------------------
@@ -85,7 +85,7 @@ sleep "${SLEEP_BETWEEN_RUNS_SECONDS}"
 # -------------------------
 # Run 3 (starts only after Run 2 ends)
 # -------------------------
-run_one "runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try3" \
+run_one "runs/qwen25vl_ours_0126_0208_0224_try3" \
   --agent_name qwen25vl \
   --console_port 5554 \
   --grpc_port 8554 \
@@ -93,7 +93,7 @@ run_one "runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try3" \
   --qwen3vl_model_base_url http://10.210.9.11:32011/v1 \
   --qwen3vl_model_name Qwen2.5-VL-7B-Instruct \
   --qwen3vl_model_api_key EMPTY \
-  --checkpoint_dir runs/qwen25vl_ours_0208_thinking_rl_pattern_50_common_try3 \
+  --checkpoint_dir runs/qwen25vl_ours_0126_0208_0224_try3 \
   --task_random_seed 50
 
 echo "[OK] All runs finished successfully."
